@@ -1,0 +1,34 @@
+services:
+  agent:
+    build: .
+    ports:
+      - "${PORT:-8787}:8787"
+    volumes:
+      - agent-data:/app/.data
+      - ${WORKSPACE_PATH:-.}:/workspace:${WORKSPACE_READ_ONLY:-rw}
+      # Mount Pi auth so the agent can use your OAuth tokens
+      - ${PI_AUTH_DIR:-~/.pi/agent}:/root/.pi/agent:ro
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8787
+      - AUTH_TOKEN=${AUTH_TOKEN:-}
+      - AGENT_MODEL=${AGENT_MODEL:-openai-codex/gpt-5.4}
+      - WORKSPACE_PATH=/workspace
+      - WORKSPACE_READ_ONLY=${WORKSPACE_READ_ONLY:-false}
+      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-2}
+      - JIRA_BASE_URL=${JIRA_BASE_URL:-}
+      - JIRA_EMAIL=${JIRA_EMAIL:-}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN:-}
+      - JIRA_AUTO_COMMENT=${JIRA_AUTO_COMMENT:-false}
+      - JIRA_TRIGGER_MENTION=${JIRA_TRIGGER_MENTION:-@agent}
+      - JIRA_TRIGGER_STATUSES=${JIRA_TRIGGER_STATUSES:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_DEFAULT_OWNER=${GITHUB_DEFAULT_OWNER:-}
+      - GITHUB_DEFAULT_BASE=${GITHUB_DEFAULT_BASE:-main}
+      - GIT_ALLOW_PUSH=${GIT_ALLOW_PUSH:-false}
+      - GITHUB_ALLOW_PR=${GITHUB_ALLOW_PR:-false}
+      - BROWSER_HEADLESS=true
+    restart: unless-stopped
+
+volumes:
+  agent-data:
