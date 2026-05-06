@@ -125,8 +125,11 @@ export class PiRuntime {
   async run(job, { onEvent }) {
     // Live session exists → reuse it (same Pi conversation history)
     if (this.sessions.has(job.id)) return this._followUp(job, onEvent);
-    // No live session but job has previous output → new session with context injected
-    if (job.output || job.result) return this._resumeWithContext(job, onEvent);
+    // No live session but has a persisted Pi session file → resume from disk
+    if (job.piSessionFile && existsSync(job.piSessionFile)) {
+      console.log("[pi] resuming from persisted session:", job.piSessionFile);
+      return this._resumeFromDisk(job, onEvent);
+    }
     if (this.mode === "direct") return this._startDirect(job, onEvent);
     return this._startAgentOs(job, onEvent);
   }
@@ -141,22 +144,11 @@ export class PiRuntime {
     return { sessionId: live.sessionId, text: "" };
   }
 
-  async _resumeWithContext(job, onEvent) {
-    // Session was lost (server restart). Start a new session but prepend
-    // the previous conversation as context so the agent knows what happened.
-    const prevOutput = job.output || job.result || "";
-    const contextPrefix = prevOutput
-      ? `[CONTEXT] You are continuing a previous session. The workspace has been refreshed — repos are mounted fresh. Ignore any previous errors about missing repos.\n\nPrevious conversation summary:\n${trim(prevOutput, 10_000)}\n\n[NEW MESSAGE] `
-      : "";
-    const augmentedPrompt = contextPrefix + job.prompt;
-    // Temporarily override the job prompt
-    const originalPrompt = job.prompt;
-    job.prompt = augmentedPrompt;
-    let result;
-    if (this.mode === "direct") result = await this._startDirect(job, onEvent);
-    else result = await this._startAgentOs(job, onEvent);
-    job.prompt = originalPrompt;
-    return result;
+  async _resumeFromDisk(job, onEvent) {
+    // Resume a Pi session from its persisted JSONL file — full conversation history.
+    // We still need to create a new Agent OS VM, but Pi picks up from where it left off.
+    if (this.mode === "direct") return this._startDirect(job, onEvent);
+    return this._startAgentOs(job, onEvent);
   }
 
   // ── Agent OS runtime ─────────────────────────────────────────
@@ -386,8 +378,20 @@ export class PiRuntime {
     }
 
     const tools = [...codingTools, createGrepTool(cwd), createFindTool(cwd), createLsTool(cwd)];
-    const { session } = await createAgentSession({ cwd, sessionManager: SessionManager.inMemory(), resourceLoader, authStorage, modelRegistry, tools, ...(model ? { model } : {}) });
+    // Use file-backed session manager for persistence across restarts
+    const sessDir = resolve(job.workspacePath, ".pi-sessions");
+    await mkdir(sessDir, { recursive: true });
+    let sessionManager;
+    if (job.piSessionFile && existsSync(job.piSessionFile)) {
+      sessionManager = SessionManager.open(job.piSessionFile, sessDir);
+      console.log("[pi:direct] resuming session from:", job.piSessionFile);
+    } else {
+      sessionManager = SessionManager.create(cwd, sessDir);
+    }
+    const { session } = await createAgentSession({ cwd, sessionManager, resourceLoader, authStorage, modelRegistry, tools, ...(model ? { model } : {}) });
     if (!session.model) throw new Error(`No model available. Tried: ${modelStr}`);
+    // Persist the session file path to the job record
+    job.piSessionFile = sessionManager.getSessionFile();
 
     console.log("[pi:direct] session:", session.sessionId, "model:", session.model.provider + "/" + session.model.id, "cwd:", cwd);
     await onEvent("agent.session_created", { sessionId: session.sessionId, model: session.model.provider + "/" + session.model.id, runtime: "direct", tools: tools.map((t) => t.name), cwd });

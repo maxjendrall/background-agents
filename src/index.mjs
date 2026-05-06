@@ -42,7 +42,7 @@ async function onJobComplete(job, output) {
 }
 
 const runner = new JobRunner({ config, store, runtime, onComplete: onJobComplete });
-const app = createApp({ config, store, runner, extensions });
+const app = createApp({ config, store, runner, runtime, extensions });
 
 const server = serve({ fetch: app.fetch, hostname: config.server.host, port: config.server.port });
 console.log(`[background-agents] http://${config.server.host}:${config.server.port}`);

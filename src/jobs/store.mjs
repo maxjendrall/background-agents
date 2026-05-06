@@ -102,6 +102,7 @@ export class JobStore {
       status: job.status, model: job.model,
       createdAt: job.createdAt, startedAt: job.startedAt || null, completedAt: job.completedAt || null,
       result: job.result || null, error: job.error || null,
+      hasSession: Boolean(job.piSessionFile),
       ...(opts.events ? { events: opts.events } : {}),
     };
   }

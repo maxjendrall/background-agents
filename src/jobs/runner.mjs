@@ -60,7 +60,12 @@ export class JobRunner {
     });
 
     const output = result.text || this.store.get(job.id)?.output || "";
-    await this.store.update(job.id, { status: "completed", result: output, completedAt: now() });
+    await this.store.update(job.id, {
+      status: "completed",
+      result: output,
+      completedAt: now(),
+      ...(job.piSessionFile ? { piSessionFile: job.piSessionFile } : {}),
+    });
     await this.store.event(job.id, "job.completed", { length: output.length });
 
     if (this.onComplete) await this.onComplete(job, output);

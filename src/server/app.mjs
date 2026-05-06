@@ -6,7 +6,7 @@ import { streamSSE } from "hono/streaming";
 import { registerRoutes, extensionList } from "../core/extension.mjs";
 import { auth } from "./auth.mjs";
 
-export function createApp({ config, store, runner, extensions }) {
+export function createApp({ config, store, runner, runtime, extensions }) {
   const app = new Hono();
   app.use("*", async (c, next) => { c.set("config", config); await next(); });
   app.use("*", cors());
@@ -95,6 +95,18 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
   app.post("/api/jobs/:id/cancel", async (c) => {
     const job = await runner.cancel(c.req.param("id"));
     return c.json({ job: store.pub(job) });
+  });
+
+  // Reset: clear Pi session history, start fresh on next prompt
+  app.post("/api/jobs/:id/reset", async (c) => {
+    const job = store.get(c.req.param("id"));
+    if (!job) return c.json({ error: "Not found" }, 404);
+    // Dispose live session if any
+    runtime.disposeJob(job.id);
+    // Clear the persisted session file reference so next run creates a fresh session
+    await store.update(job.id, { piSessionFile: null, status: "idle" });
+    await store.event(job.id, "session.reset", { reason: "user reset" });
+    return c.json({ job: store.pub(store.get(job.id)), reset: true });
   });
 
   // Follow-up: send a new prompt to an existing session
