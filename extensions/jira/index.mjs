@@ -21,12 +21,26 @@ async function buildPrompt(config, body) {
   const jira = new JiraClient(config);
   let issue = null, comments = null;
   if (jira.configured) {
-    try { issue = await jira.getIssue(key); } catch {}
-    try { comments = await jira.getComments(key); } catch {}
+    try { issue = await jira.getIssue(key); } catch (e) { console.log("[jira] failed to fetch issue:", e.message); }
+    try { comments = await jira.getComments(key); } catch (e) { console.log("[jira] failed to fetch comments:", e.message); }
   }
   const event = commentText(body) || body.webhookEvent || "trigger";
   const extra = body.prompt || body.instructions || "";
-  return { issueKey: key, prompt: `Jira ${key}\n\nEvent: ${trim(event, 10_000)}\n${extra ? `\nInstructions: ${trim(extra, 20_000)}\n` : ""}${issue ? `\nIssue:\n${JSON.stringify(issue, null, 2)}\n` : ""}${comments ? `\nComments:\n${JSON.stringify(comments, null, 2)}\n` : ""}\nProceed according to your operating rules.` };
+  const prompt = [
+    `You are assigned to Jira issue ${key}.`,
+    ``,
+    `Trigger event: ${trim(event, 10_000)}`,
+    extra ? `\nAdditional instructions: ${trim(extra, 20_000)}` : "",
+    issue ? `\n--- Jira Issue ---\n${JSON.stringify(issue, null, 2)}` : `\n(Could not fetch issue details. Use jira_get_issue tool to read it.)`,
+    comments?.comments?.length ? `\n--- Recent Comments ---\n${JSON.stringify(comments.comments.slice(0, 10), null, 2)}` : "",
+    ``,
+    `Instructions:`,
+    `1. Read the issue and comments carefully.`,
+    `2. If the task is clear, proceed with implementation.`,
+    `3. If unclear, use jira_add_comment to ask a clarifying question.`,
+    `4. When done, use jira_add_comment to report your results.`,
+  ].filter(Boolean).join("\n");
+  return { issueKey: key, prompt };
 }
 
 export function jiraExtension() {
