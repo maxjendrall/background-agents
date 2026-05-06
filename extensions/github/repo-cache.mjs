@@ -47,13 +47,18 @@ export class RepoCache {
     const branch = `agent/${jobId}`;
     await mkdir(resolve(jobWorkspacePath, "repos"), { recursive: true });
 
-    // Clean up stale worktree references and old directory
+    // If worktree already exists with a .git file, reuse it (preserves changes)
+    if (existsSync(resolve(hostPath, ".git"))) {
+      console.log(`[repo-cache] reusing existing worktree: ${hostPath}`);
+      return { hostPath, branch, agentPath: `/home/user/workspace/repos/${dirName}` };
+    }
+
+    // Clean up stale references
     if (existsSync(hostPath)) {
       const { rmSync } = await import("node:fs");
       rmSync(hostPath, { recursive: true, force: true });
     }
     try { this._git(cache, ["worktree", "prune"]); } catch {}
-    // Force-remove the branch if it exists from a previous run
     try { this._git(cache, ["branch", "-D", branch]); } catch {}
 
     this._git(cache, ["worktree", "add", "-B", branch, hostPath, "HEAD"]);
