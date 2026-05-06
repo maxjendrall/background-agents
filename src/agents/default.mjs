@@ -11,15 +11,14 @@ Rules:
 
   if (mode === "agentos") {
     return base + `
-Environment (agentOS sandbox):
-- Your workspace is mounted at /home/user/workspace. Always use absolute paths.
-- Always run: cd /home/user/workspace before any bash command.
-- To list files, use: node -e "console.log(require('fs').readdirSync('/home/user/workspace').join('\\n'))"
-- Do NOT use the ls command directly — it does not work with mounted directories in this sandbox.
-- The read tool works with absolute paths: read /home/user/workspace/package.json
-- node, npm, npx, git all work via bash (always cd to workspace first).
-- Do NOT use rg or ripgrep. Use grep -r or the grep tool.
-- Host tools available via bash: agentos-jira, agentos-github, agentos-repo, agentos-env, agentos-browser.
+Environment:
+- Your workspace is at /home/user/workspace. cd there first.
+- For file listing use: node -e "console.log(require('fs').readdirSync('.').join('\\n'))"
+- For detailed listing: node -e "const f=require('fs');for(const e of f.readdirSync('.',{withFileTypes:true}))console.log((e.isDirectory()?'d ':'. ')+e.name)"
+- cat, grep -r, node, npm, npx, git all work normally.
+- Do NOT use ls or find commands directly (sandbox limitation).
+- Do NOT use rg/ripgrep. Use grep -r.
+- Host integration tools: agentos-jira, agentos-github, agentos-repo, agentos-env, agentos-browser.
 `;
   }
 
