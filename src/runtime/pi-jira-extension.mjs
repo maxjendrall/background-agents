@@ -2,40 +2,25 @@
 // Registers native Pi tools for Jira so the agent doesn't need bash.
 
 export function piJiraExtensionSource() {
-  // This string is eval'd inside the Pi adapter subprocess.
-  // It has access to the Node runtime, fetch, and env vars.
   return `
 module.exports = function(pi) {
   const CLOUD_ID = process.env.JIRA_CLOUD_ID;
   const BASE = CLOUD_ID ? "https://api.atlassian.com/ex/jira/" + CLOUD_ID : process.env.JIRA_BASE_URL;
-  const AUTH_MODE = process.env.JIRA_AUTH_MODE || "none"; // "oauth" or "basic"
+  const AUTH_MODE = process.env.JIRA_AUTH_MODE || "none";
+  // Server pre-refreshes the access token and passes it directly
+  const ACCESS_TOKEN = process.env.JIRA_ACCESS_TOKEN;
 
   if (!BASE || AUTH_MODE === "none") return;
 
-  async function getToken() {
-    if (AUTH_MODE === "basic") {
-      return "Basic " + Buffer.from(process.env.JIRA_EMAIL + ":" + process.env.JIRA_API_TOKEN).toString("base64");
-    }
-    // OAuth: refresh if needed
-    const clientId = process.env.JIRA_OAUTH_CLIENT_ID;
-    const clientSecret = process.env.JIRA_OAUTH_CLIENT_SECRET;
-    const refreshToken = process.env.JIRA_REFRESH_TOKEN;
-    if (!clientId || !refreshToken) throw new Error("Jira OAuth not configured");
-
-    const res = await fetch("https://auth.atlassian.com/oauth/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ grant_type: "refresh_token", client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken }),
-    });
-    const data = await res.json();
-    if (!data.access_token) throw new Error("Jira token refresh failed: " + JSON.stringify(data));
-    return "Bearer " + data.access_token;
+  function getAuth() {
+    if (AUTH_MODE === "basic") return "Basic " + Buffer.from(process.env.JIRA_EMAIL + ":" + process.env.JIRA_API_TOKEN).toString("base64");
+    if (ACCESS_TOKEN) return "Bearer " + ACCESS_TOKEN;
+    throw new Error("No Jira access token. Re-authorize at /api/jira/oauth/authorize");
   }
 
   async function jiraReq(path, opts) {
-    const auth = await getToken();
     const url = BASE + path;
-    const res = await fetch(url, { ...opts, headers: { Authorization: auth, Accept: "application/json", "Content-Type": "application/json", ...(opts?.headers || {}) } });
+    const res = await fetch(url, { ...opts, headers: { Authorization: getAuth(), Accept: "application/json", "Content-Type": "application/json", ...(opts?.headers || {}) } });
     const text = await res.text();
     if (!res.ok) throw new Error(res.status + " " + text.slice(0, 500));
     return text ? JSON.parse(text) : {};

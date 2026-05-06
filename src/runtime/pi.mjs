@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
@@ -91,6 +91,28 @@ export class PiRuntime {
     try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; }
   }
 
+  async _refreshJiraAccessToken(tokens) {
+    // If token is still fresh (more than 5 min left), reuse it
+    if (tokens.access_token && tokens.expires_at && Date.now() < tokens.expires_at - 5 * 60_000) {
+      return tokens.access_token;
+    }
+    const clientId = this.config.jira.oauth?.clientId;
+    const clientSecret = this.config.jira.oauth?.clientSecret;
+    if (!clientId || !tokens.refresh_token) throw new Error("Jira OAuth not configured for refresh");
+    const res = await fetch("https://auth.atlassian.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grant_type: "refresh_token", client_id: clientId, client_secret: clientSecret, refresh_token: tokens.refresh_token }),
+    });
+    const data = await res.json();
+    if (!data.access_token) throw new Error("Jira token refresh failed: " + JSON.stringify(data));
+    const updated = { ...tokens, access_token: data.access_token, expires_at: Date.now() + (data.expires_in || 3600) * 1000, ...(data.refresh_token ? { refresh_token: data.refresh_token } : {}) };
+    // Persist updated tokens
+    const p = resolve(this.config.paths.data, "jira-oauth-tokens.json");
+    try { writeFileSync(p, JSON.stringify(updated, null, 2)); } catch {}
+    return updated.access_token;
+  }
+
   async run(job, { onEvent }) {
     if (this.sessions.has(job.id)) return this._followUp(job, onEvent);
     if (this.mode === "direct") return this._startDirect(job, onEvent);
@@ -159,11 +181,11 @@ export class PiRuntime {
     const jiraEnv = {};
     const jiraTokens = this._loadJiraTokens();
     if (jiraTokens?.cloudId) {
+      // Pre-refresh the access token server-side so the Pi extension doesn't need to
+      const freshToken = await this._refreshJiraAccessToken(jiraTokens);
       jiraEnv.JIRA_AUTH_MODE = "oauth";
       jiraEnv.JIRA_CLOUD_ID = jiraTokens.cloudId;
-      jiraEnv.JIRA_REFRESH_TOKEN = jiraTokens.refresh_token || "";
-      jiraEnv.JIRA_OAUTH_CLIENT_ID = this.config.jira.oauth?.clientId || "";
-      jiraEnv.JIRA_OAUTH_CLIENT_SECRET = this.config.jira.oauth?.clientSecret || "";
+      jiraEnv.JIRA_ACCESS_TOKEN = freshToken;
     } else if (this.config.jira.email && this.config.jira.token) {
       jiraEnv.JIRA_AUTH_MODE = "basic";
       jiraEnv.JIRA_BASE_URL = this.config.jira.baseUrl;
