@@ -68,7 +68,22 @@ function rebuildFromEvents() {
     if (e.type === "agent.tool_acp") {
       const d = e.data;
       if (d.type === "tool_start") tools.push({ id: d.id, name: d.name || "tool", status: d.status || "pending", input: d.input, ts: e.ts });
-      if (d.type === "tool_update") { const t = tools.find((x) => x.id === d.id); if (t) { if (d.status) t.status = d.status; if (d.output) t.output = d.output; if (d.content) for (const c of d.content) if (c.type === "content") t.outputText = (t.outputText || "") + (c.content?.text || ""); } }
+      if (d.type === "tool_update") {
+        const t = tools.find((x) => x.id === d.id);
+        if (t) {
+          if (d.status && d.status !== "pending") t.status = d.status;
+          // Extract output text from the ACP content structure (last update wins, not accumulated)
+          if (d.output?.content) {
+            const texts = d.output.content.filter(c => c.type === "text").map(c => c.text);
+            if (texts.length) t.outputText = texts.join("");
+          }
+          if (d.content) {
+            const texts = d.content.filter(c => c.type === "content" && c.content?.text).map(c => c.content.text);
+            if (texts.length) t.outputText = texts.join("");
+          }
+          if (d.rawInput && Object.keys(d.rawInput).length) t.input = d.rawInput;
+        }
+      }
     }
     if (e.type === "agent.tool") {
       const d = e.data;
