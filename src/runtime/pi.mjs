@@ -8,6 +8,7 @@ import pi from "@rivet-dev/agent-os-pi";
 import { collectToolkits } from "../core/extension.mjs";
 import { systemPrompt } from "../agents/default.mjs";
 import { piJiraExtensionSource } from "./pi-jira-extension.mjs";
+import { trim } from "../core/redact.mjs";
 
 // Direct Pi SDK imports for fallback runtime
 import { createAgentSession, SessionManager, DefaultResourceLoader, AuthStorage, ModelRegistry, getAgentDir, codingTools, createGrepTool, createFindTool, createLsTool } from "@mariozechner/pi-coding-agent";
@@ -119,7 +120,10 @@ export class PiRuntime {
   }
 
   async run(job, { onEvent }) {
+    // Live session exists → reuse it (same Pi conversation history)
     if (this.sessions.has(job.id)) return this._followUp(job, onEvent);
+    // No live session but job has previous output → new session with context injected
+    if (job.output || job.result) return this._resumeWithContext(job, onEvent);
     if (this.mode === "direct") return this._startDirect(job, onEvent);
     return this._startAgentOs(job, onEvent);
   }
@@ -127,12 +131,29 @@ export class PiRuntime {
   async _followUp(job, onEvent) {
     const live = this.sessions.get(job.id);
     console.log("[pi] follow-up:", live.sessionId);
-    // Update the event callback so new events go to the current runner
     live.onEvent = onEvent;
     await onEvent("agent.follow_up", { sessionId: live.sessionId });
     await live.prompt(job.prompt);
     console.log("[pi] follow-up done");
     return { sessionId: live.sessionId, text: "" };
+  }
+
+  async _resumeWithContext(job, onEvent) {
+    // Session was lost (server restart). Start a new session but prepend
+    // the previous conversation as context so the agent knows what happened.
+    const prevOutput = job.output || job.result || "";
+    const contextPrefix = prevOutput
+      ? `[CONTEXT] You are continuing a previous session for this job. Here is what you previously said/did:\n\n${trim(prevOutput, 10_000)}\n\n[NEW MESSAGE] `
+      : "";
+    const augmentedPrompt = contextPrefix + job.prompt;
+    // Temporarily override the job prompt
+    const originalPrompt = job.prompt;
+    job.prompt = augmentedPrompt;
+    let result;
+    if (this.mode === "direct") result = await this._startDirect(job, onEvent);
+    else result = await this._startAgentOs(job, onEvent);
+    job.prompt = originalPrompt;
+    return result;
   }
 
   // ── Agent OS runtime ─────────────────────────────────────────
