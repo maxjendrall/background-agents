@@ -55,6 +55,9 @@ export class RepoCache {
         this._git(hostPath, ["config", "user.email", "paperclip-bot[bot]@users.noreply.github.com"]);
         this._git(hostPath, ["config", "user.name", "paperclip-bot[bot]"]);
       }
+      // Fix mirror mode if present
+      try { this._git(hostPath, ["config", "--unset", "remote.origin.mirror"]); } catch {}
+      try { this._git(hostPath, ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]); } catch {}
       return { hostPath, branch, agentPath: `/home/user/workspace/repos/${dirName}` };
     }
 
@@ -70,6 +73,9 @@ export class RepoCache {
     // Configure git user for commits (paperclip-bot identity)
     this._git(hostPath, ["config", "user.email", "paperclip-bot[bot]@users.noreply.github.com"]);
     this._git(hostPath, ["config", "user.name", "paperclip-bot[bot]"]);
+    // Fix mirror mode inherited from bare cache — breaks push
+    try { this._git(hostPath, ["config", "--unset", "remote.origin.mirror"]); } catch {}
+    this._git(hostPath, ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]);
     console.log(`[repo-cache] worktree created: ${hostPath} branch: ${branch}`);
     return { hostPath, branch, agentPath: `/home/user/workspace/repos/${dirName}` };
   }
