@@ -97,6 +97,20 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
     return c.json({ job: store.pub(job) });
   });
 
+  // Follow-up: send a new prompt to an existing session
+  app.post("/api/jobs/:id/prompt", async (c) => {
+    const job = store.get(c.req.param("id"));
+    if (!job) return c.json({ error: "Not found" }, 404);
+    const body = await c.req.json();
+    const prompt = body.prompt || body.text;
+    if (!prompt) return c.json({ error: "Missing prompt" }, 400);
+    // Update the job with the new prompt and re-enqueue
+    await store.update(job.id, { status: "queued", prompt });
+    await store.event(job.id, "follow_up.queued", { prompt: prompt.slice(0, 500) });
+    runner.enqueue(store.get(job.id));
+    return c.json({ job: store.pub(store.get(job.id)) }, 202);
+  });
+
   app.post("/api/run", async (c) => {
     const body = await c.req.json();
     const prompt = body.prompt || body.instructions;

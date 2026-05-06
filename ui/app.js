@@ -9,6 +9,31 @@ const h = (tag, attrs = {}, ...children) => {
   return el;
 };
 
+// --- ANSI to HTML ---
+function ansiToHtml(text) {
+  if (!text) return "";
+  const colors = { 30:"#666",31:"#f85149",32:"#3fb950",33:"#d29922",34:"#58a6ff",35:"#bc8cff",36:"#39c5cf",37:"#c9d1d9",90:"#666",91:"#ff7b72",92:"#56d364",93:"#e3b341",94:"#79c0ff",95:"#d2a8ff",96:"#56d4dd",97:"#ffffff" };
+  let out = "", style = "";
+  const parts = text.split(/(\x1b\[[0-9;]*m)/g);
+  for (const p of parts) {
+    const m = p.match(/^\x1b\[([0-9;]*)m$/);
+    if (m) {
+      const codes = m[1].split(";").map(Number);
+      for (const c of codes) {
+        if (c === 0 || c === "") { style = ""; }
+        else if (c === 1) { style += "font-weight:bold;"; }
+        else if (c === 2) { style += "opacity:0.6;"; }
+        else if (c === 3) { style += "font-style:italic;"; }
+        else if (colors[c]) { style += "color:" + colors[c] + ";"; }
+      }
+    } else if (p) {
+      const escaped = p.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      out += style ? `<span style="${style}">${escaped}</span>` : escaped;
+    }
+  }
+  return out;
+}
+
 const TOKEN = localStorage.getItem("bg-agents-token") || "";
 const hdrs = () => TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
 async function api(path, opts = {}) {
@@ -20,12 +45,12 @@ async function api(path, opts = {}) {
 let state = { view: "list", jobs: [], health: null, jobId: null, job: null, events: [], chat: "", thinking: "", tools: [] };
 let eventSource = null;
 let formState = { prompt: "", issueKey: "", model: "" };
+let followUpText = "";
 
 // --- URL ---
 function pushUrl(v, id) { history.pushState({}, "", v === "detail" && id ? `/ui#job/${id}` : "/ui"); }
 function readUrl() { const m = (location.hash || "").match(/^#job\/(.+)$/); return m ? { view: "detail", jobId: m[1] } : { view: "list" }; }
 window.addEventListener("popstate", () => { const r = readUrl(); r.jobId ? selectJob(r.jobId, true) : backToList(); });
-
 function backToList() { state.view = "list"; closeEs(); pushUrl("list"); render(); }
 function closeEs() { if (eventSource) { eventSource.close(); eventSource = null; } }
 
@@ -39,6 +64,7 @@ function rebuildFromEvents() {
   for (const e of state.events) {
     if (e.type === "agent.text") chat += e.data?.text || "";
     if (e.type === "agent.thinking") thinking += e.data?.text || "";
+    if (e.type === "follow_up.queued") chat += "\n\n---\nFollow-up: " + (e.data?.prompt || "") + "\n---\n\n";
     if (e.type === "agent.tool_acp") {
       const d = e.data;
       if (d.type === "tool_start") tools.push({ id: d.id, name: d.name || "tool", status: d.status || "pending", input: d.input, ts: e.ts });
@@ -59,7 +85,7 @@ function rebuildFromEvents() {
 }
 
 async function selectJob(id, skipPush) {
-  state.view = "detail"; state.jobId = id;
+  state.view = "detail"; state.jobId = id; followUpText = "";
   if (!skipPush) pushUrl("detail", id);
   try { const r = await api(`/api/jobs/${id}?events=1`); state.job = r.job; state.events = r.job?.events || []; }
   catch { state.job = { id, status: "unknown", title: id }; state.events = []; }
@@ -74,10 +100,11 @@ async function selectJob(id, skipPush) {
     if (e.type === "agent.text") { state.chat += e.data?.text || ""; const el = $("#chat-output"); if (el) el.textContent = state.chat; }
     if (e.type === "agent.thinking") { state.thinking += e.data?.text || ""; const el = $("#thinking-content"); if (el) { el.textContent = state.thinking; el.scrollTop = el.scrollHeight; } }
     if (e.type === "agent.tool_acp" || e.type === "agent.tool" || e.type === "agent.tool_exec") { rebuildFromEvents(); renderTimeline(); }
-    if (e.type === "job.completed" || e.type === "job.failed") { api(`/api/jobs/${state.jobId}`).then((r) => { state.job = r.job; render(); }); }
+    if (e.type === "follow_up.queued") { rebuildFromEvents(); const el = $("#chat-output"); if (el) el.textContent = state.chat; }
+    if (e.type === "job.completed" || e.type === "job.failed") { api(`/api/jobs/${state.jobId}`).then((r) => { state.job = r.job; renderJobStatus(); }); }
   };
   es.onmessage = handler;
-  for (const n of ["job.created","job.started","job.completed","job.failed","job.cancelled","queue.enqueued","agent.text","agent.thinking","agent.tool","agent.tool_exec","agent.tool_acp","agent.session_created","job.cloning","job.cloned"]) es.addEventListener(n, handler);
+  for (const n of ["job.created","job.started","job.completed","job.failed","job.cancelled","queue.enqueued","agent.text","agent.thinking","agent.tool","agent.tool_exec","agent.tool_acp","agent.session_created","job.cloning","job.cloned","follow_up.queued","agent.follow_up"]) es.addEventListener(n, handler);
 }
 
 async function triggerRun() {
@@ -92,6 +119,14 @@ async function triggerRun() {
   if (res.job?.id) selectJob(res.job.id); else { await fetchJobs(); render(); }
 }
 
+async function sendFollowUp() {
+  const text = followUpText.trim();
+  if (!text || !state.jobId) return;
+  followUpText = "";
+  const input = $("#follow-up-input"); if (input) input.value = "";
+  await api(`/api/jobs/${state.jobId}/prompt`, { method: "POST", body: JSON.stringify({ prompt: text }) });
+}
+
 async function switchModel(model) {
   await api("/api/config/model", { method: "PUT", body: JSON.stringify({ model }) });
   await fetchHealth(); render();
@@ -104,22 +139,32 @@ function icon(status) { return status === "completed" ? "\u2713" : status === "f
 
 function renderTimeline() {
   const el = $("#timeline"); if (!el) return; el.innerHTML = "";
-  // Tool calls in order
   for (const t of state.tools) {
-    const argStr = t.input ? (t.input.command || t.input.path || JSON.stringify(t.input).slice(0, 120)) : (t.args ? (t.args.command || t.args.path || JSON.stringify(t.args).slice(0, 120)) : "");
-    const resultStr = t.outputText || (t.output ? JSON.stringify(t.output).slice(0, 500) : "") || (t.result ? String(t.result).slice(0, 500) : "");
+    const argStr = t.input ? (t.input.command || t.input.path || t.input.issueKey || t.input.jql || JSON.stringify(t.input).slice(0, 120)) : (t.args ? (t.args.command || t.args.path || JSON.stringify(t.args).slice(0, 120)) : "");
+    const resultRaw = t.outputText || (t.output ? JSON.stringify(t.output).slice(0, 2000) : "") || (t.result ? String(t.result).slice(0, 2000) : "");
+    const hasAnsi = resultRaw.includes("\x1b[");
+    const resultEl = resultRaw ? h("pre", { class: "tool-output", ...(hasAnsi ? { html: ansiToHtml(resultRaw) } : {}) }) : null;
+    if (resultEl && !hasAnsi) resultEl.textContent = resultRaw;
     el.appendChild(h("details", { class: "timeline-tool" },
       h("summary", { class: `tool-summary tool-${t.status}` },
         h("span", { class: "tool-icon" }, icon(t.status)), h("span", { class: "tool-name" }, t.name),
         argStr ? h("span", { class: "tool-args" }, argStr) : null),
-      resultStr ? h("pre", { class: "tool-output" }, resultStr) : null));
+      resultEl));
   }
-  // Thinking block
   if (state.thinking) {
     el.appendChild(h("details", { class: "timeline-thinking", ...(state.job?.status === "running" ? { open: "" } : {}) },
       h("summary", { class: "thinking-summary" }, "Thinking"),
       h("pre", { id: "thinking-content", class: "thinking-content" }, state.thinking)));
   }
+}
+
+function renderJobStatus() {
+  const el = $("#job-info"); if (!el || !state.job) return;
+  const j = state.job;
+  el.innerHTML = "";
+  el.appendChild(h("span", { class: badge(j.status) }, j.status));
+  el.appendChild(document.createTextNode(` | ${j.model || "-"} | ${ago(j.createdAt)} ago`));
+  if (j.error) el.appendChild(h("span", { class: "job-error" }, " | " + j.error.slice(0, 200)));
 }
 
 // --- Views ---
@@ -136,7 +181,7 @@ function renderStats() {
     h("div", { class: "card" }, h("h3", {}, "Queue"), h("div", { class: "value" }, String(hl.queue ?? 0))),
     h("div", { class: "card" }, h("h3", {}, "Active"), h("div", { class: "value" }, String(hl.active ?? 0))),
     h("div", { class: "card" }, h("h3", {}, "Jobs"), h("div", { class: "value" }, String(hl.jobs ?? 0))),
-    h("div", { class: "card clickable", on: { click: () => { const m = prompt("Model (e.g. openai-codex/gpt-5.4):", state.health?.model || ""); if (m) switchModel(m); } } },
+    h("div", { class: "card clickable", on: { click: () => { const m = prompt("Model:", state.health?.model || ""); if (m) switchModel(m); } } },
       h("h3", {}, "Model"), h("div", { class: "value" }, hl.model || "-")));
 }
 
@@ -179,28 +224,33 @@ function renderJobList() {
 function renderDetail() {
   const j = state.job; if (!j) return h("div", {}, "Loading...");
   const answer = state.chat || j.result || (j.status === "running" ? "" : "(no output)");
-  // Find session info from events
   const sessionEvt = state.events.find((e) => e.type === "agent.session_created");
-  const sessionModel = sessionEvt?.data?.model || j.model || "-";
+
+  const followUpInput = h("input", {
+    id: "follow-up-input", type: "text", placeholder: "Send follow-up message...",
+    on: { input: (e) => { followUpText = e.target.value; }, keydown: (e) => { if (e.key === "Enter") sendFollowUp(); } },
+  });
 
   return h("div", { class: "detail" },
     h("div", { class: "actions" },
       h("button", { on: { click: backToList } }, "Back"),
       h("button", { on: { click: () => api(`/api/jobs/${j.id}/cancel`, { method: "POST" }) } }, "Cancel")),
     h("h2", {}, j.title || j.id),
-    h("div", { class: "job-info" },
+    h("div", { id: "job-info", class: "job-info" },
       h("span", { class: badge(j.status) }, j.status),
-      h("span", { class: "info-sep" }, "|"),
-      h("span", {}, sessionModel),
-      h("span", { class: "info-sep" }, "|"),
-      h("span", {}, ago(j.createdAt) + " ago"),
-      j.error ? h("span", { class: "job-error" }, j.error.slice(0, 200)) : null),
-
+      ` | ${sessionEvt?.data?.model || j.model || "-"} | ${ago(j.createdAt)} ago`,
+      j.error ? h("span", { class: "job-error" }, " | " + j.error.slice(0, 200)) : null),
+    // Tools + session info
+    sessionEvt?.data?.tools ? h("div", { class: "session-tools" },
+      ...sessionEvt.data.tools.map((t) => h("span", { class: "tool-badge" }, t))) : null,
     // Answer
     h("div", { class: "answer-section" },
       h("h2", {}, "Answer"),
       h("pre", { id: "chat-output", class: "answer-content" }, answer || (j.status === "running" ? "Working..." : ""))),
-
+    // Follow-up input
+    h("div", { class: "follow-up" },
+      followUpInput,
+      h("button", { on: { click: sendFollowUp } }, "Send")),
     // Timeline
     h("div", { class: "timeline-section" },
       h("h2", {}, `Activity (${state.tools.length} tool calls)`),
