@@ -146,7 +146,7 @@ export class PiRuntime {
     // the previous conversation as context so the agent knows what happened.
     const prevOutput = job.output || job.result || "";
     const contextPrefix = prevOutput
-      ? `[CONTEXT] You are continuing a previous session for this job. Here is what you previously said/did:\n\n${trim(prevOutput, 10_000)}\n\n[NEW MESSAGE] `
+      ? `[CONTEXT] You are continuing a previous session. The workspace has been refreshed — repos are mounted fresh. Ignore any previous errors about missing repos.\n\nPrevious conversation summary:\n${trim(prevOutput, 10_000)}\n\n[NEW MESSAGE] `
       : "";
     const augmentedPrompt = contextPrefix + job.prompt;
     // Temporarily override the job prompt
