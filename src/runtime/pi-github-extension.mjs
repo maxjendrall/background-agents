@@ -8,7 +8,7 @@ module.exports = function(pi) {
   if (!GH_TOKEN) return;
 
   async function ghReq(path, opts) {
-    const res = await fetch("https://api.github.com" + path, { ...opts, headers: { Authorization: "Bearer " + GH_TOKEN, Accept: "application/vnd.github+json", "Content-Type": "application/json", ...(opts?.headers || {}) } });
+    const res = await fetch("https://api.github.com" + path, { ...opts, headers: { Authorization: "Bearer " + GH_TOKEN, Accept: "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "background-agents/0.1", ...(opts?.headers || {}) } });
     const text = await res.text();
     if (!res.ok) throw new Error(res.status + " " + text.slice(0, 500));
     return text ? JSON.parse(text) : {};

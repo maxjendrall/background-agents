@@ -51,7 +51,7 @@ export class GitHubClient {
     const token = await this.getInstallationToken();
     return fetchJson(`https://api.github.com${path}`, {
       ...opts,
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", ...opts.headers },
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "background-agents/0.1", ...opts.headers },
     });
   }
 
