@@ -2,6 +2,7 @@ import { hostTool, toolKit } from "@rivet-dev/agent-os-core";
 import { z } from "zod";
 import { JiraClient } from "./client.mjs";
 import { trim } from "../../src/core/redact.mjs";
+import { formatIssue, formatComments } from "./format.mjs";
 
 function issueKey(body) {
   return body?.issueKey || body?.issue_key || body?.key || body?.issue?.key || "";
@@ -47,8 +48,8 @@ async function buildPrompt(config, body, batchedEvents) {
     `Recent events (${eventSummaries.length}):`,
     ...eventSummaries.map((s) => `- ${s}`),
     extra ? `\nAdditional instructions: ${trim(extra, 20_000)}` : "",
-    issue ? `\n--- Jira Issue ---\n${JSON.stringify(issue, null, 2)}` : `\n(Could not fetch issue details. Use jira_get_issue tool to read it.)`,
-    comments?.comments?.length ? `\n--- Recent Comments (last ${Math.min(comments.comments.length, 20)}) ---\n${JSON.stringify(comments.comments.slice(0, 20), null, 2)}` : "",
+    issue ? `\n--- Jira Issue ---\n${formatIssue(issue)}` : `\n(Could not fetch issue details. Use jira_get_issue tool to read it.)`,
+    comments?.comments?.length ? `\n--- Recent Comments ---\n${formatComments({ comments: comments.comments.slice(0, 20) })}` : "",
     ``,
     `Instructions:`,
     `1. Read the issue and comments carefully.`,
