@@ -20,7 +20,10 @@ async function buildPrompt(config, body) {
   if (!key) throw new Error("Missing issue key");
   const jira = new JiraClient(config);
   let issue = null, comments = null;
-  if (jira.configured) { issue = await jira.getIssue(key); comments = await jira.getComments(key); }
+  if (jira.configured) {
+    try { issue = await jira.getIssue(key); } catch {}
+    try { comments = await jira.getComments(key); } catch {}
+  }
   const event = commentText(body) || body.webhookEvent || "trigger";
   const extra = body.prompt || body.instructions || "";
   return { issueKey: key, prompt: `Jira ${key}\n\nEvent: ${trim(event, 10_000)}\n${extra ? `\nInstructions: ${trim(extra, 20_000)}\n` : ""}${issue ? `\nIssue:\n${JSON.stringify(issue, null, 2)}\n` : ""}${comments ? `\nComments:\n${JSON.stringify(comments, null, 2)}\n` : ""}\nProceed according to your operating rules.` };
@@ -32,6 +35,42 @@ export function jiraExtension() {
     description: "Jira triggers and tools",
 
     routes(app, { config, store, runner }) {
+
+      // --- OAuth routes ---
+
+      app.get("/api/jira/oauth/authorize", (c) => {
+        const oauth = config.jira.oauth;
+        if (!oauth?.clientId) return c.json({ error: "JIRA_OAUTH_CLIENT_ID not configured" }, 400);
+        const scopes = "read:jira-work write:jira-work read:jira-user manage:jira-project offline_access";
+        const callbackUrl = `${c.req.header("x-forwarded-proto") || "http"}://${c.req.header("host")}/api/jira/oauth/callback`;
+        const state = Math.random().toString(36).slice(2);
+        const url = `https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id=${oauth.clientId}&scope=${encodeURIComponent(scopes)}&redirect_uri=${encodeURIComponent(callbackUrl)}&state=${state}&response_type=code&prompt=consent`;
+        return c.redirect(url);
+      });
+
+      app.get("/api/jira/oauth/callback", async (c) => {
+        const code = c.req.query("code");
+        if (!code) return c.json({ error: "No authorization code received" }, 400);
+        const jira = new JiraClient(config);
+        const callbackUrl = `${c.req.header("x-forwarded-proto") || "http"}://${c.req.header("host")}/api/jira/oauth/callback`;
+        try {
+          const tokens = await jira.exchangeCode(code, callbackUrl);
+          return c.html(`<h1>Jira OAuth connected</h1><p>Site: ${tokens.siteName || "connected"}</p><p>Cloud ID: ${tokens.cloudId}</p><p><a href="/ui">Back to dashboard</a></p>`);
+        } catch (e) {
+          return c.json({ error: e.message }, 500);
+        }
+      });
+
+      app.get("/api/jira/oauth/status", async (c) => {
+        const jira = new JiraClient(config);
+        if (jira.mode === "none") return c.json({ connected: false, mode: "none" });
+        if (jira.mode === "basic") return c.json({ connected: true, mode: "basic", email: config.jira.email });
+        const tokens = jira._loadTokens();
+        return c.json({ connected: !!tokens?.refresh_token, mode: "oauth", site: tokens?.siteName || null, cloudId: tokens?.cloudId || null });
+      });
+
+      // --- Trigger routes ---
+
       app.post("/api/jira/trigger", async (c) => {
         const body = await c.req.json();
         const { issueKey: key, prompt } = await buildPrompt(config, body);

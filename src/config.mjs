@@ -63,6 +63,10 @@ export async function loadConfig() {
       autoComment: bool("JIRA_AUTO_COMMENT"),
       triggerMention: process.env.JIRA_TRIGGER_MENTION || "@agent",
       triggerStatuses: list(process.env.JIRA_TRIGGER_STATUSES),
+      oauth: {
+        clientId: process.env.JIRA_OAUTH_CLIENT_ID || "",
+        clientSecret: process.env.JIRA_OAUTH_CLIENT_SECRET || "",
+      },
     },
     github: {
       token: process.env.GITHUB_TOKEN || "",
