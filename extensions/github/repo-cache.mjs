@@ -14,23 +14,27 @@ export class RepoCache {
     return resolve(this.config.paths.repoCache, "github.com", owner, `${repo}.git`);
   }
 
-  _git(cwd, args, timeout = 180_000) {
+  _repoUrl(owner, repo) {
     const token = this._token || this.config.github?.token;
-    const authArgs = token ? ["-c", `http.extraHeader=Authorization: Bearer ${token}`] : [];
-    const allArgs = [...authArgs, ...args];
-    const result = execFileSync("git", allArgs, { cwd, stdio: "pipe", timeout });
-    return result.toString().trim();
+    if (token) return `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
+    return `https://github.com/${owner}/${repo}.git`;
+  }
+
+  _git(cwd, args, timeout = 180_000) {
+    return execFileSync("git", args, { cwd, stdio: "pipe", timeout }).toString().trim();
   }
 
   async ensureCache(owner, repo) {
     const cache = this._cachePath(owner, repo);
     await mkdir(resolve(cache, ".."), { recursive: true });
-    const url = `https://github.com/${owner}/${repo}.git`;
+    const url = this._repoUrl(owner, repo);
     if (!existsSync(cache)) {
       console.log(`[repo-cache] cloning ${owner}/${repo} (first time)...`);
       this._git(resolve(cache, ".."), ["clone", "--mirror", url, cache]);
     } else {
       console.log(`[repo-cache] fetching ${owner}/${repo}...`);
+      // Update remote URL in case token changed
+      try { this._git(cache, ["remote", "set-url", "origin", url]); } catch {}
       try { this._git(cache, ["remote", "update", "--prune"]); } catch (e) { console.log(`[repo-cache] fetch warning:`, e.message.slice(0, 200)); }
     }
     return cache;

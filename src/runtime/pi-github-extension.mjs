@@ -11,11 +11,8 @@ module.exports = function(pi) {
   // --- Git tools (use node child_process since git isn't in WASM) ---
 
   function git(cwd, args) {
-    const { execSync } = require("child_process");
-    const authArgs = GH_TOKEN ? ["-c", "http.extraHeader=Authorization: Bearer " + GH_TOKEN] : [];
-    const allArgs = [...authArgs, ...args];
-    const quoted = allArgs.map(a => "'" + String(a).replace(/'/g, "'\\\\''") + "'").join(" ");
-    return execSync("git " + quoted, { cwd, stdio: "pipe", timeout: 120000 }).toString().trim();
+    const { execFileSync } = require("child_process");
+    return execFileSync("git", args, { cwd, stdio: "pipe", timeout: 120000 }).toString().trim();
   }
 
   function findRepoDirs() {
@@ -84,6 +81,14 @@ module.exports = function(pi) {
     execute: async (toolCallId, { path }) => {
       try {
         const branch = git(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
+        // Set remote URL with embedded token for auth
+        if (GH_TOKEN) {
+          try {
+            const remoteUrl = git(path, ["remote", "get-url", "origin"]);
+            const authedUrl = remoteUrl.replace("https://github.com/", "https://x-access-token:" + GH_TOKEN + "@github.com/");
+            git(path, ["remote", "set-url", "origin", authedUrl]);
+          } catch {}
+        }
         const result = git(path, ["push", "-u", "origin", branch]);
         return { content: [{ type: "text", text: "Pushed " + branch + "\\n" + result }] };
       } catch(e) { return { content: [{ type: "text", text: "Error: " + e.message }] }; }
