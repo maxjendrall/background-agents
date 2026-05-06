@@ -155,16 +155,32 @@ function icon(status) { return status === "completed" ? "\u2713" : status === "f
 function renderTimeline() {
   const el = $("#timeline"); if (!el) return; el.innerHTML = "";
   for (const t of state.tools) {
-    const argStr = t.input ? (t.input.command || t.input.path || t.input.issueKey || t.input.jql || JSON.stringify(t.input).slice(0, 120)) : (t.args ? (t.args.command || t.args.path || JSON.stringify(t.args).slice(0, 120)) : "");
-    const resultRaw = t.outputText || (t.output ? JSON.stringify(t.output).slice(0, 2000) : "") || (t.result ? String(t.result).slice(0, 2000) : "");
+    // Build arg summary
+    const inp = t.input && Object.keys(t.input).length ? t.input : (t.args || null);
+    let argStr = "";
+    if (inp) {
+      argStr = inp.command || inp.path || inp.issueKey || inp.jql || inp.query || inp.pattern || "";
+      if (!argStr && Object.keys(inp).length) argStr = Object.entries(inp).map(([k,v]) => k + "=" + JSON.stringify(v)).join(" ").slice(0, 120);
+    }
+    // Build output
+    let resultRaw = t.outputText || "";
+    if (!resultRaw && t.output) resultRaw = typeof t.output === "string" ? t.output : JSON.stringify(t.output, null, 2);
+    if (!resultRaw && t.result) resultRaw = String(t.result);
+    resultRaw = resultRaw.slice(0, 3000);
     const hasAnsi = resultRaw.includes("\x1b[");
+    // Build detail content
+    const detailChildren = [];
+    if (inp && Object.keys(inp).length) {
+      detailChildren.push(h("pre", { class: "tool-input" }, JSON.stringify(inp, null, 2)));
+    }
     const resultEl = resultRaw ? h("pre", { class: "tool-output", ...(hasAnsi ? { html: ansiToHtml(resultRaw) } : {}) }) : null;
     if (resultEl && !hasAnsi) resultEl.textContent = resultRaw;
+    if (resultEl) detailChildren.push(resultEl);
     el.appendChild(h("details", { class: "timeline-tool" },
       h("summary", { class: `tool-summary tool-${t.status}` },
         h("span", { class: "tool-icon" }, icon(t.status)), h("span", { class: "tool-name" }, t.name),
         argStr ? h("span", { class: "tool-args" }, argStr) : null),
-      resultEl));
+      ...detailChildren));
   }
   if (state.thinking) {
     el.appendChild(h("details", { class: "timeline-thinking", ...(state.job?.status === "running" ? { open: "" } : {}) },

@@ -29,8 +29,12 @@ function acpThinking(event) {
 function acpToolCall(event) {
   const u = event?.params?.update;
   if (!u) return null;
-  if (u.sessionUpdate === "tool_call") return { type: "tool_start", id: u.toolCallId, name: u.title, status: u.status, input: u.rawInput };
-  if (u.sessionUpdate === "tool_call_update") return { type: "tool_update", id: u.toolCallId, status: u.status, output: u.rawOutput, content: u.content };
+  if (u.sessionUpdate === "tool_call") return { type: "tool_start", id: u.toolCallId, name: u.title, status: u.status, input: u.rawInput, locations: u.locations };
+  if (u.sessionUpdate === "tool_call_update") {
+    // Skip noisy pending updates that carry no useful data
+    if (u.status === "pending" && !u.rawInput && !u.rawOutput && !u.content) return null;
+    return { type: "tool_update", id: u.toolCallId, status: u.status, rawInput: u.rawInput, output: u.rawOutput, content: u.content, locations: u.locations };
+  }
   return null;
 }
 

@@ -65,6 +65,7 @@ textarea { font-family: var(--mono); resize: vertical; }
 .tool-running .tool-icon, .tool-in_progress .tool-icon { color: var(--yellow); }
 .tool-pending .tool-icon { color: var(--muted); }
 .tool-output { margin: 0; padding: 8px 12px; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; border-top: 1px solid var(--border); }
+.tool-input { margin: 0; padding: 8px 12px; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--accent); white-space: pre-wrap; word-break: break-all; max-height: 100px; overflow-y: auto; border-top: 1px solid var(--border); background: rgba(88,166,255,0.03); }
 
 .timeline-thinking { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
 .thinking-summary { padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--muted); font-style: italic; list-style: none; }
