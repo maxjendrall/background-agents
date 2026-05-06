@@ -13,6 +13,7 @@ const TOKEN = localStorage.getItem("bg-agents-token") || "";
 const hdrs = () => TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
 async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...hdrs(), ...opts.headers } });
+  if (res.status === 401) { location.href = "/login"; throw new Error("unauthorized"); }
   return res.json();
 }
 
@@ -64,7 +65,7 @@ async function selectJob(id, skipPush) {
   catch { state.job = { id, status: "unknown", title: id }; state.events = []; }
   rebuildFromEvents(); render();
   closeEs();
-  const es = new EventSource(`/api/jobs/${id}/events`);
+  const es = new EventSource(`/api/jobs/${id}/events${TOKEN ? "?token=" + encodeURIComponent(TOKEN) : ""}`);
   eventSource = es;
   const handler = (msg) => {
     let e; try { e = JSON.parse(msg.data); } catch { return; }

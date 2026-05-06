@@ -11,14 +11,39 @@ export function createApp({ config, store, runner, extensions }) {
   app.use("*", async (c, next) => { c.set("config", config); await next(); });
   app.use("*", cors());
 
-  // --- UI ---
+  // --- Login page ---
+  app.get("/login", (c) => {
+    const token = config.server.token;
+    if (!token) return c.redirect("/ui");
+    return c.html(`<!DOCTYPE html><html><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Login</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.box{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:32px;width:340px}h1{font-size:18px;margin-bottom:16px}
+input{width:100%;padding:10px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#c9d1d9;font-size:14px;margin-bottom:12px}
+button{width:100%;padding:10px;border:none;border-radius:6px;background:#238636;color:#fff;font-size:14px;cursor:pointer}button:hover{background:#2ea043}
+.err{color:#f85149;font-size:13px;margin-bottom:8px;display:none}</style></head><body>
+<div class="box"><h1>Background Agents</h1><div class="err" id="err">Invalid token</div>
+<form onsubmit="event.preventDefault();const t=document.getElementById('t').value;document.cookie='auth_token='+t+';path=/;max-age=31536000';
+fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localStorage.setItem('bg-agents-token',t);location.href='/ui'}else{document.getElementById('err').style.display='block'}}).catch(()=>{document.getElementById('err').style.display='block'})">
+<input id="t" type="password" placeholder="Token" autofocus><button type="submit">Login</button></form></div></body></html>`);
+  });
+
+  // --- Auth on everything except login and Jira webhook ---
+  app.use("*", async (c, next) => {
+    const path = c.req.path;
+    // Allow login page and Jira webhook (needs to be callable by Jira servers)
+    if (path === "/login" || path === "/api/jira/webhook") return next();
+    // Apply auth
+    return auth(c, next);
+  });
+
+  // --- UI (protected) ---
   const uiDir = resolve(config.root, "ui");
   app.get("/ui", (c) => c.html(readFileSync(resolve(uiDir, "index.html"), "utf8")));
   app.get("/ui/app.js", (c) => { c.header("content-type", "application/javascript"); return c.body(readFileSync(resolve(uiDir, "app.js"), "utf8")); });
   app.get("/ui/style.css", (c) => { c.header("content-type", "text/css"); return c.body(readFileSync(resolve(uiDir, "style.css"), "utf8")); });
 
-  // --- Public ---
-  app.get("/", (c) => c.json({ name: "background-agents", extensions: extensionList(extensions) }));
+  // --- Root / Health ---
+  app.get("/", (c) => c.json({ name: "background-agents" }));
   app.get("/health", (c) => c.json({
     ok: true,
     workspace: config.workspace.exists ? config.workspace.path : null,
@@ -30,10 +55,7 @@ export function createApp({ config, store, runner, extensions }) {
     extensions: extensionList(extensions),
   }));
 
-  // --- Protected ---
-  app.use("/api/*", auth);
-
-  // Config
+  // --- Config ---
   app.get("/api/config", (c) => c.json({
     model: config.runtime.model,
     concurrency: config.runtime.maxConcurrency,
@@ -48,7 +70,7 @@ export function createApp({ config, store, runner, extensions }) {
     return c.json({ model: config.runtime.model });
   });
 
-  // Jobs
+  // --- Jobs ---
   app.get("/api/jobs", (c) => c.json({ jobs: store.list().map((j) => store.pub(j)) }));
 
   app.get("/api/jobs/:id", async (c) => {
@@ -92,7 +114,7 @@ export function createApp({ config, store, runner, extensions }) {
     return c.json({ job: store.pub(job) }, 202);
   });
 
-  // Extension routes
+  // Extension routes (includes Jira OAuth callback which needs to work during auth flow)
   registerRoutes(app, { config, store, runner }, extensions);
 
   app.notFound((c) => c.json({ error: "Not found" }, 404));
