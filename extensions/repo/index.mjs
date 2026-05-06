@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { hostTool, toolKit } from "@rivet-dev/agent-os-core";
 import { z } from "zod";
 import { slug } from "../../src/core/ids.mjs";
-import { parseGitHubRepo } from "../github/index.mjs";
+import { parseGitHubRepo } from "../github/client.mjs";
 
 function mapPath(config, job, agentPath) {
   if (!agentPath || agentPath === "/workspace") return config.workspace.path || job.workspacePath;

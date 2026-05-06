@@ -85,3 +85,12 @@ export class GitHubClient {
     });
   }
 }
+
+export function parseGitHubRepo(input) {
+  const s = String(input || "").trim();
+  let m = s.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
+  if (m) return { owner: m[1], repo: m[2] };
+  m = s.match(/^([^/\s]+)\/([^/\s]+)$/);
+  if (m) return { owner: m[1], repo: m[2] };
+  return null;
+}
