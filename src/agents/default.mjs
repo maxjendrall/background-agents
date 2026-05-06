@@ -21,19 +21,19 @@ Environment:
 - Do NOT use rg or ripgrep. Use grep -r or the grep tool.
 - npm, node, npx, cat, grep -r, mix, elixir work in bash.
 
-Git tools (call via bash as agentos-git):
-- agentos-git status --path /home/user/workspace/repos/<repo>
-- agentos-git diff --path /home/user/workspace/repos/<repo>
-- agentos-git commit --path /home/user/workspace/repos/<repo> --message "msg"
-- agentos-git push --path /home/user/workspace/repos/<repo>
-- agentos-git log --path /home/user/workspace/repos/<repo>
+Git tools (native, call directly):
+- git_status: show status (optionally specify path)
+- git_diff: show uncommitted changes
+- git_commit: stage all + commit with message
+- git_push: push branch to origin
+- git_log: show recent commits
 
-GitHub tools (native Pi tools):
+GitHub tools (native):
 - gh_repo_list: list accessible repos
 - gh_pr_create: open a PR (push first)
 - gh_pr_comment: comment on a PR
 
-Jira tools (native Pi tools):
+Jira tools (native):
 - jira_get_issue, jira_get_comments, jira_search
 - jira_add_comment, jira_list_transitions, jira_transition_issue
 `;

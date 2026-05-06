@@ -9,6 +9,7 @@ import { collectToolkits } from "../core/extension.mjs";
 import { systemPrompt } from "../agents/default.mjs";
 import { piJiraExtensionSource } from "./pi-jira-extension.mjs";
 import { piGitHubExtensionSource } from "./pi-github-extension.mjs";
+import { piGitExtensionSource } from "./pi-git-extension.mjs";
 import { RepoCache } from "../../extensions/github/repo-cache.mjs";
 import { trim } from "../core/redact.mjs";
 
@@ -278,6 +279,9 @@ export class PiRuntime {
 
     // GitHub extension: git + GitHub API tools
     await vm.writeFile(`${extDir}/github-tools.js`, piGitHubExtensionSource());
+
+    // Git extension: calls host toolkit via internal RPC
+    await vm.writeFile(`${extDir}/git-tools.js`, piGitExtensionSource());
 
     // Build Jira env vars for the extension
     const jiraEnv = {};
