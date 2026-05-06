@@ -135,7 +135,13 @@ export class PiRuntime {
 
     const created = await vm.createSession("pi", {
       cwd: VM_WORKSPACE,
-      env: { HOME: VM_HOME },
+      env: {
+        HOME: VM_HOME,
+        ...(process.env.OPENAI_API_KEY ? { OPENAI_API_KEY: process.env.OPENAI_API_KEY } : {}),
+        ...(process.env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY } : {}),
+        ...(process.env.OPENAI_BASE_URL ? { OPENAI_BASE_URL: process.env.OPENAI_BASE_URL } : {}),
+        ...(process.env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL } : {}),
+      },
       additionalInstructions: systemPrompt(this.mode),
     });
     const sessionId = created.sessionId;
