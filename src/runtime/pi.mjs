@@ -128,8 +128,17 @@ export class PiRuntime {
     // Write Pi config into VFS
     const piDir = `${VM_HOME}/.pi/agent`;
     await vm.mkdir(piDir, { recursive: true });
-    try { await vm.writeFile(`${piDir}/auth.json`, readFileSync(resolve(homedir(), ".pi", "agent", "auth.json"), "utf8")); } catch {}
+
+    // Auth: merge host auth.json with env var API keys
+    let authData = {};
+    try { authData = JSON.parse(readFileSync(resolve(homedir(), ".pi", "agent", "auth.json"), "utf8")); } catch {}
+    if (process.env.OPENAI_API_KEY && !authData.openai) authData.openai = { type: "api_key", key: process.env.OPENAI_API_KEY };
+    if (process.env.ANTHROPIC_API_KEY && !authData.anthropic) authData.anthropic = { type: "api_key", key: process.env.ANTHROPIC_API_KEY };
+    await vm.writeFile(`${piDir}/auth.json`, JSON.stringify(authData, null, 2));
+
+    // Models: copy from host if exists
     try { await vm.writeFile(`${piDir}/models.json`, readFileSync(resolve(homedir(), ".pi", "agent", "models.json"), "utf8")); } catch {}
+
     await vm.writeFile(`${piDir}/settings.json`, JSON.stringify({ defaultProvider, defaultModel, defaultThinkingLevel: "low" }, null, 2));
     await vm.mkdir(VM_WORKSPACE, { recursive: true });
 
