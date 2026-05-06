@@ -103,8 +103,9 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
     if (!job) return c.json({ error: "Not found" }, 404);
     // Dispose live session if any
     runtime.disposeJob(job.id);
-    // Clear the persisted session file reference so next run creates a fresh session
-    await store.update(job.id, { piSessionFile: null, status: "idle" });
+    // Clear everything: session file, output, result, events
+    await store.update(job.id, { piSessionFile: null, output: "", result: null, status: "idle" });
+    await store.clearEvents(job.id);
     await store.event(job.id, "session.reset", { reason: "user reset" });
     return c.json({ job: store.pub(store.get(job.id)), reset: true });
   });

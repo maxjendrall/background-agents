@@ -89,6 +89,11 @@ export class JobStore {
     return (await readFile(p, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l));
   }
 
+  async clearEvents(jobId) {
+    const p = resolve(this.config.paths.jobs, jobId, "events.jsonl");
+    await writeFile(p, "", "utf8");
+  }
+
   subscribe(jobId, fn) {
     const set = this.subs.get(jobId) || new Set();
     set.add(fn);
