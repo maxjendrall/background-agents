@@ -206,11 +206,23 @@ export class PiRuntime {
     else if (model) defaultModel = model;
 
     // Build mounts from cloned repos
-    const mounts = mountedRepos.map((r) => ({
-      path: r.agentPath,
-      driver: createHostDirBackend({ hostPath: r.hostPath, readOnly: false }),
-      readOnly: false,
-    }));
+    const mounts = [];
+    if (mountedRepos.length > 0 && configuredRepos.length > 0) {
+      // Mount the parent repos/ dir as a single mount so Pi's read tool can see all repos
+      const reposHostDir = resolve(jobDir, "repos");
+      mounts.push({
+        path: "/home/user/workspace/repos",
+        driver: createHostDirBackend({ hostPath: reposHostDir, readOnly: false }),
+        readOnly: false,
+      });
+    } else if (mountedRepos.length === 1 && !configuredRepos.length) {
+      // Single workspace mount (fallback mode)
+      mounts.push({
+        path: mountedRepos[0].agentPath,
+        driver: createHostDirBackend({ hostPath: mountedRepos[0].hostPath, readOnly: false }),
+        readOnly: false,
+      });
+    }
 
     const toolKits = collectToolkits({ config: this.config, job, processes: this.processes }, this.extensions);
     const vm = await AgentOs.create({ software: [common, pi], mounts, toolKits, additionalInstructions: systemPrompt(this.mode) });

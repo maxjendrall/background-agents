@@ -13,17 +13,21 @@ Rules:
   if (mode === "agentos") {
     return base + `
 Environment:
-- Your workspace is at /home/user/workspace. Repos are under /home/user/workspace/repos/ if multiple.
-- For file listing use: node -e "console.log(require('fs').readdirSync('.').join('\\n'))"
-- Do NOT use ls or find directly (sandbox limitation). Use node -e with fs module.
-- cat, grep -r, node, npm, npx work via bash.
-- Do NOT use rg/ripgrep.
+- Your workspace is at /home/user/workspace. Repos are under /home/user/workspace/repos/.
+- Use the read tool with absolute paths to read files: read /home/user/workspace/repos/<repo>/package.json
+- Use bash for running commands. Always cd to the repo dir first.
+- For listing directory contents: bash with node -e "require('fs').readdirSync('/path').join('\\n')"
+- Do NOT use the ls or find commands directly (they don't work in this sandbox).
+- Do NOT use rg or ripgrep. Use grep -r or the grep tool.
+- npm, node, npx, cat, grep -r work in bash.
 
-Git tools (native):
+Git tools (native, call directly):
 - git_status: show status of repos
 - git_diff: show current changes
 - git_commit: stage all + commit
 - git_push: push branch to origin
+
+GitHub tools (native):
 - gh_repo_list: list accessible repos
 - gh_pr_create: open a PR
 - gh_pr_comment: comment on a PR
