@@ -85,7 +85,7 @@ export function jiraExtension() {
         if (existing && existing.status !== "cancelled" && existing.status !== "queued") {
           // If running, just log the follow-up event — the debounce will catch the next window
           if (existing.status === "running") {
-            await store.event(existing.id, "follow_up.pending", { prompt: prompt.slice(0, 500), source: "jira_webhook", note: "job is running, will retry" });
+            await store.event(existing.id, "follow_up.pending", { prompt: prompt.slice(0, 50_000), source: "jira_webhook", note: "job is running, will retry" });
             // Re-buffer for retry after current run completes
             const retryBuf = { events: buf.events, firstBody: buf.firstBody, timer: null };
             retryBuf.timer = setTimeout(() => flushWebhook(key), 15_000);
@@ -93,7 +93,7 @@ export function jiraExtension() {
             return;
           }
           await store.update(existing.id, { status: "queued", prompt });
-          await store.event(existing.id, "follow_up.queued", { prompt: prompt.slice(0, 500), source: "jira_webhook", batchSize: buf.events.length });
+          await store.event(existing.id, "follow_up.queued", { prompt: prompt.slice(0, 50_000), source: "jira_webhook", batchSize: buf.events.length });
           runner.enqueue(store.get(existing.id));
           return;
         }
@@ -145,7 +145,7 @@ export function jiraExtension() {
             return c.json({ job: store.pub(existing), running: true, message: "Job is running, follow-up will be delivered after current turn" }, 202);
           }
           await store.update(existing.id, { status: "queued", prompt });
-          await store.event(existing.id, "follow_up.queued", { prompt: prompt.slice(0, 500), source: "jira_trigger" });
+          await store.event(existing.id, "follow_up.queued", { prompt: prompt.slice(0, 50_000), source: "jira_trigger" });
           runner.enqueue(store.get(existing.id));
           return c.json({ job: store.pub(store.get(existing.id)), continued: true }, 202);
         }

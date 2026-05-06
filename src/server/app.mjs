@@ -106,7 +106,7 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
     if (!prompt) return c.json({ error: "Missing prompt" }, 400);
     // Update the job with the new prompt and re-enqueue
     await store.update(job.id, { status: "queued", prompt });
-    await store.event(job.id, "follow_up.queued", { prompt: prompt.slice(0, 500) });
+    await store.event(job.id, "follow_up.queued", { prompt: prompt.slice(0, 50_000) });
     runner.enqueue(store.get(job.id));
     return c.json({ job: store.pub(store.get(job.id)) }, 202);
   });
