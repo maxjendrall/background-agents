@@ -14,11 +14,13 @@ import { githubExtension } from "../extensions/github/index.mjs";
 import { repoExtension } from "../extensions/repo/index.mjs";
 import { envExtension } from "../extensions/env/index.mjs";
 import { browserExtension } from "../extensions/browser/index.mjs";
+import { gitExtension } from "../extensions/git/index.mjs";
 
 const config = await loadConfig();
 const extensions = loadExtensions([
   jiraExtension(),
   githubExtension(),
+  gitExtension(),
   repoExtension(),
   envExtension(),
   browserExtension(),

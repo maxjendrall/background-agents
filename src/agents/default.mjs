@@ -14,25 +14,26 @@ Rules:
     return base + `
 Environment:
 - Your workspace is at /home/user/workspace. Repos are under /home/user/workspace/repos/.
-- Use the read tool with absolute paths to read files: read /home/user/workspace/repos/<repo>/package.json
+- Use the read tool with absolute paths to read files.
 - Use bash for running commands. Always cd to the repo dir first.
 - For listing directory contents: bash with node -e "require('fs').readdirSync('/path').join('\\n')"
 - Do NOT use the ls or find commands directly (they don't work in this sandbox).
 - Do NOT use rg or ripgrep. Use grep -r or the grep tool.
-- npm, node, npx, cat, grep -r work in bash.
+- npm, node, npx, cat, grep -r, mix, elixir work in bash.
 
-Git tools (native, call directly):
-- git_status: show status of repos
-- git_diff: show current changes
-- git_commit: stage all + commit
-- git_push: push branch to origin
+Git tools (call via bash as agentos-git):
+- agentos-git status --path /home/user/workspace/repos/<repo>
+- agentos-git diff --path /home/user/workspace/repos/<repo>
+- agentos-git commit --path /home/user/workspace/repos/<repo> --message "msg"
+- agentos-git push --path /home/user/workspace/repos/<repo>
+- agentos-git log --path /home/user/workspace/repos/<repo>
 
-GitHub tools (native):
+GitHub tools (native Pi tools):
 - gh_repo_list: list accessible repos
-- gh_pr_create: open a PR
+- gh_pr_create: open a PR (push first)
 - gh_pr_comment: comment on a PR
 
-Jira tools (native):
+Jira tools (native Pi tools):
 - jira_get_issue, jira_get_comments, jira_search
 - jira_add_comment, jira_list_transitions, jira_transition_issue
 `;
