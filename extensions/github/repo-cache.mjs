@@ -50,6 +50,11 @@ export class RepoCache {
     // If worktree already exists with a .git file, reuse it (preserves changes)
     if (existsSync(resolve(hostPath, ".git"))) {
       console.log(`[repo-cache] reusing existing worktree: ${hostPath}`);
+      // Ensure git user config exists
+      try { this._git(hostPath, ["config", "user.email"]); } catch {
+        this._git(hostPath, ["config", "user.email", "paperclip-bot[bot]@users.noreply.github.com"]);
+        this._git(hostPath, ["config", "user.name", "paperclip-bot[bot]"]);
+      }
       return { hostPath, branch, agentPath: `/home/user/workspace/repos/${dirName}` };
     }
 
@@ -62,6 +67,9 @@ export class RepoCache {
     try { this._git(cache, ["branch", "-D", branch]); } catch {}
 
     this._git(cache, ["worktree", "add", "-B", branch, hostPath, "HEAD"]);
+    // Configure git user for commits (paperclip-bot identity)
+    this._git(hostPath, ["config", "user.email", "paperclip-bot[bot]@users.noreply.github.com"]);
+    this._git(hostPath, ["config", "user.name", "paperclip-bot[bot]"]);
     console.log(`[repo-cache] worktree created: ${hostPath} branch: ${branch}`);
     return { hostPath, branch, agentPath: `/home/user/workspace/repos/${dirName}` };
   }

@@ -34,7 +34,16 @@ function getGitToken(config) {
 
 function git(cwd, args, token) {
   // Use URL-embedded token for push
-  return execFileSync("git", args, { cwd, stdio: "pipe", timeout: 120_000 }).toString().trim();
+  return execFileSync("git", args, {
+    cwd, stdio: "pipe", timeout: 120_000,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "paperclip-bot[bot]",
+      GIT_AUTHOR_EMAIL: "paperclip-bot[bot]@users.noreply.github.com",
+      GIT_COMMITTER_NAME: "paperclip-bot[bot]",
+      GIT_COMMITTER_EMAIL: "paperclip-bot[bot]@users.noreply.github.com",
+    },
+  }).toString().trim();
 }
 
 function findRepoDirs(job) {
