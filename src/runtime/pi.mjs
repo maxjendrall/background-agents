@@ -7,6 +7,7 @@ import common from "@rivet-dev/agent-os-common";
 import pi from "@rivet-dev/agent-os-pi";
 import { collectToolkits } from "../core/extension.mjs";
 import { systemPrompt } from "../agents/default.mjs";
+import { piJiraExtensionSource } from "./pi-jira-extension.mjs";
 
 // Direct Pi SDK imports for fallback runtime
 import { createAgentSession, SessionManager, DefaultResourceLoader, AuthStorage, ModelRegistry, getAgentDir, codingTools, createGrepTool, createFindTool, createLsTool } from "@mariozechner/pi-coding-agent";
@@ -85,6 +86,11 @@ export class PiRuntime {
     }
   }
 
+  _loadJiraTokens() {
+    const p = resolve(this.config.paths.data, "jira-oauth-tokens.json");
+    try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; }
+  }
+
   async run(job, { onEvent }) {
     if (this.sessions.has(job.id)) return this._followUp(job, onEvent);
     if (this.mode === "direct") return this._startDirect(job, onEvent);
@@ -142,6 +148,29 @@ export class PiRuntime {
     await vm.writeFile(`${piDir}/settings.json`, JSON.stringify({ defaultProvider, defaultModel, defaultThinkingLevel: "low" }, null, 2));
     await vm.mkdir(VM_WORKSPACE, { recursive: true });
 
+    // Write Pi extensions into VFS so they load as native tools
+    const extDir = `${VM_HOME}/.pi/agent/extensions`;
+    await vm.mkdir(extDir, { recursive: true });
+
+    // Jira extension: reads OAuth config from env vars
+    await vm.writeFile(`${extDir}/jira-tools.js`, piJiraExtensionSource());
+
+    // Build Jira env vars for the extension
+    const jiraEnv = {};
+    const jiraTokens = this._loadJiraTokens();
+    if (jiraTokens?.cloudId) {
+      jiraEnv.JIRA_AUTH_MODE = "oauth";
+      jiraEnv.JIRA_CLOUD_ID = jiraTokens.cloudId;
+      jiraEnv.JIRA_REFRESH_TOKEN = jiraTokens.refresh_token || "";
+      jiraEnv.JIRA_OAUTH_CLIENT_ID = this.config.jira.oauth?.clientId || "";
+      jiraEnv.JIRA_OAUTH_CLIENT_SECRET = this.config.jira.oauth?.clientSecret || "";
+    } else if (this.config.jira.email && this.config.jira.token) {
+      jiraEnv.JIRA_AUTH_MODE = "basic";
+      jiraEnv.JIRA_BASE_URL = this.config.jira.baseUrl;
+      jiraEnv.JIRA_EMAIL = this.config.jira.email;
+      jiraEnv.JIRA_API_TOKEN = this.config.jira.token;
+    }
+
     const created = await vm.createSession("pi", {
       cwd: VM_WORKSPACE,
       env: {
@@ -150,12 +179,13 @@ export class PiRuntime {
         ...(process.env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY } : {}),
         ...(process.env.OPENAI_BASE_URL ? { OPENAI_BASE_URL: process.env.OPENAI_BASE_URL } : {}),
         ...(process.env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL } : {}),
+        ...jiraEnv,
       },
       additionalInstructions: systemPrompt(this.mode),
     });
     const sessionId = created.sessionId;
     console.log("[pi:agentos] session:", sessionId, "model:", defaultProvider + "/" + defaultModel);
-    await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", ...toolKits.map((k) => k.name)] });
+    await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_search", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
 
     const unsub = vm.onSessionEvent(sessionId, (event) => {
       const text = acpText(event);

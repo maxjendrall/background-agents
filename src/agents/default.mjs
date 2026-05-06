@@ -12,13 +12,19 @@ Rules:
   if (mode === "agentos") {
     return base + `
 Environment:
-- Your workspace is at /home/user/workspace. cd there first.
+- Your workspace is at /home/user/workspace.
 - For file listing use: node -e "console.log(require('fs').readdirSync('.').join('\\n'))"
-- For detailed listing: node -e "const f=require('fs');for(const e of f.readdirSync('.',{withFileTypes:true}))console.log((e.isDirectory()?'d ':'. ')+e.name)"
-- cat, grep -r, node, npm, npx, git all work normally.
-- Do NOT use ls or find commands directly (sandbox limitation).
+- Do NOT use ls or find directly (sandbox limitation). Use node -e with fs module instead.
+- cat, grep -r, node, npm, npx, git work via bash.
 - Do NOT use rg/ripgrep. Use grep -r.
-- Host integration tools: agentos-jira, agentos-github, agentos-repo, agentos-env, agentos-browser.
+
+Jira tools (native, call directly):
+- jira_get_issue: Fetch issue details by key
+- jira_get_comments: Fetch comments on an issue
+- jira_search: Search issues with JQL
+- jira_add_comment: Comment on an issue
+- jira_list_transitions: List available status transitions
+- jira_transition_issue: Move issue to a new status
 `;
   }
 

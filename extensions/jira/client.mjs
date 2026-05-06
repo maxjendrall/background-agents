@@ -134,7 +134,7 @@ export class JiraClient {
 
   getIssue(key) { return this.req(`/rest/api/3/issue/${encodeURIComponent(key)}?expand=renderedFields`); }
   getComments(key) { return this.req(`/rest/api/3/issue/${encodeURIComponent(key)}/comment?orderBy=-created&maxResults=20`); }
-  search(jql, max = 10) { return this.req("/rest/api/3/search", { method: "POST", body: JSON.stringify({ jql, maxResults: max, fields: ["summary", "status", "assignee", "priority"] }) }); }
+  search(jql, max = 10) { return this.req("/rest/api/3/search/jql", { method: "POST", body: JSON.stringify({ jql, maxResults: max, fields: ["summary", "status", "assignee", "priority"] }) }); }
   addComment(key, text) { return this.req(`/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { method: "POST", body: JSON.stringify({ body: doc(text) }) }); }
   listTransitions(key) { return this.req(`/rest/api/3/issue/${encodeURIComponent(key)}/transitions`); }
   transitionIssue(key, id) { return this.req(`/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, { method: "POST", body: JSON.stringify({ transition: { id } }) }); }
