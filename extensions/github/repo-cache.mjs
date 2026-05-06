@@ -67,9 +67,18 @@ export class RepoCache {
       rmSync(hostPath, { recursive: true, force: true });
     }
     try { this._git(cache, ["worktree", "prune"]); } catch {}
-    try { this._git(cache, ["branch", "-D", branch]); } catch {}
 
-    this._git(cache, ["worktree", "add", "-B", branch, hostPath, "HEAD"]);
+    // Check if branch already exists in cache (has unpushed commits we must keep)
+    let branchExists = false;
+    try { this._git(cache, ["rev-parse", "--verify", branch]); branchExists = true; } catch {}
+
+    if (branchExists) {
+      // Branch exists with possible commits — create worktree on existing branch
+      this._git(cache, ["worktree", "add", hostPath, branch]);
+    } else {
+      // New branch from HEAD
+      this._git(cache, ["worktree", "add", "-b", branch, hostPath, "HEAD"]);
+    }
     // Configure git user for commits (paperclip-bot identity)
     this._git(hostPath, ["config", "user.email", "paperclip-bot[bot]@users.noreply.github.com"]);
     this._git(hostPath, ["config", "user.name", "paperclip-bot[bot]"]);
