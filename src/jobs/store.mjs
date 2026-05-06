@@ -49,6 +49,15 @@ export class JobStore {
 
   get(jobId) { return this.jobs.get(jobId) || null; }
 
+  findByIssueKey(issueKey) {
+    if (!issueKey) return null;
+    // Find the most recent job for this issue key that isn't failed/cancelled
+    const candidates = [...this.jobs.values()]
+      .filter((j) => j.issueKey === issueKey && j.status !== "failed" && j.status !== "cancelled")
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return candidates[0] || null;
+  }
+
   list() { return [...this.jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
 
   async update(jobId, patch) {

@@ -60,6 +60,7 @@ class LiveSession {
     this.unsub = unsub;
     this.runtime = runtime;
     this.lastActivity = Date.now();
+    this.onEvent = null; // current event callback, updated on follow-up
   }
   async prompt(text) {
     this.lastActivity = Date.now();
@@ -126,6 +127,8 @@ export class PiRuntime {
   async _followUp(job, onEvent) {
     const live = this.sessions.get(job.id);
     console.log("[pi] follow-up:", live.sessionId);
+    // Update the event callback so new events go to the current runner
+    live.onEvent = onEvent;
     await onEvent("agent.follow_up", { sessionId: live.sessionId });
     await live.prompt(job.prompt);
     console.log("[pi] follow-up done");
@@ -213,17 +216,23 @@ export class PiRuntime {
     console.log("[pi:agentos] session:", sessionId, "model:", defaultProvider + "/" + defaultModel);
     await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_search", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
 
-    const unsub = vm.onSessionEvent(sessionId, (event) => {
-      const text = acpText(event);
-      if (text) { void onEvent("agent.text", { text }); return; }
-      const thinking = acpThinking(event);
-      if (thinking) { void onEvent("agent.thinking", { text: thinking }); return; }
-      const tool = acpToolCall(event);
-      if (tool) { void onEvent("agent.tool_acp", tool); return; }
-    });
-
-    const live = new LiveSession({ vm, sessionId, unsub, runtime: "agentos" });
+    // Create live session first so the event handler can reference it
+    const live = new LiveSession({ vm, sessionId, unsub: null, runtime: "agentos" });
+    live.onEvent = onEvent;
     this.sessions.set(job.id, live);
+
+    // Event handler uses live.onEvent so follow-ups get events routed correctly
+    const unsub = vm.onSessionEvent(sessionId, (event) => {
+      const cb = live.onEvent;
+      if (!cb) return;
+      const text = acpText(event);
+      if (text) { void cb("agent.text", { text }); return; }
+      const thinking = acpThinking(event);
+      if (thinking) { void cb("agent.thinking", { text: thinking }); return; }
+      const tool = acpToolCall(event);
+      if (tool) { void cb("agent.tool_acp", tool); return; }
+    });
+    live.unsub = unsub;
 
     const result = await vm.prompt(sessionId, job.prompt);
     console.log("[pi:agentos] done, text:", result.text?.length || 0);
@@ -271,21 +280,25 @@ export class PiRuntime {
     console.log("[pi:direct] session:", session.sessionId, "model:", session.model.provider + "/" + session.model.id, "cwd:", cwd);
     await onEvent("agent.session_created", { sessionId: session.sessionId, model: session.model.provider + "/" + session.model.id, runtime: "direct", tools: tools.map((t) => t.name), cwd });
 
+    const live = new LiveSession({ piSession: session, sessionId: session.sessionId, unsub: null, runtime: "direct" });
+    live.onEvent = onEvent;
+    this.sessions.set(job.id, live);
+
     const unsub = session.subscribe((event) => {
+      const cb = live.onEvent;
+      if (!cb) return;
       if (event.type === "message_update") {
         const ame = event.assistantMessageEvent;
         if (!ame) return;
-        if (ame.type === "text_delta" && "delta" in ame) void onEvent("agent.text", { text: String(ame.delta) });
-        if (ame.type === "thinking_delta" && "delta" in ame) void onEvent("agent.thinking", { text: String(ame.delta) });
-        if (ame.type === "toolcall_start" && ame.toolCall) void onEvent("agent.tool", { phase: "start", name: ame.toolCall.name, id: ame.toolCall.id });
-        if (ame.type === "toolcall_end" && ame.toolCall) void onEvent("agent.tool", { phase: "end", name: ame.toolCall.name, id: ame.toolCall.id });
+        if (ame.type === "text_delta" && "delta" in ame) void cb("agent.text", { text: String(ame.delta) });
+        if (ame.type === "thinking_delta" && "delta" in ame) void cb("agent.thinking", { text: String(ame.delta) });
+        if (ame.type === "toolcall_start" && ame.toolCall) void cb("agent.tool", { phase: "start", name: ame.toolCall.name, id: ame.toolCall.id });
+        if (ame.type === "toolcall_end" && ame.toolCall) void cb("agent.tool", { phase: "end", name: ame.toolCall.name, id: ame.toolCall.id });
       }
-      if (event.type === "tool_execution_start") void onEvent("agent.tool_exec", { phase: "start", tool: event.toolName, args: event.args });
-      if (event.type === "tool_execution_end") void onEvent("agent.tool_exec", { phase: "end", tool: event.toolName, isError: event.isError, result: typeof event.result === "string" ? event.result.slice(0, 5000) : JSON.stringify(event.result).slice(0, 5000) });
+      if (event.type === "tool_execution_start") void cb("agent.tool_exec", { phase: "start", tool: event.toolName, args: event.args });
+      if (event.type === "tool_execution_end") void cb("agent.tool_exec", { phase: "end", tool: event.toolName, isError: event.isError, result: typeof event.result === "string" ? event.result.slice(0, 5000) : JSON.stringify(event.result).slice(0, 5000) });
     });
-
-    const live = new LiveSession({ piSession: session, sessionId: session.sessionId, unsub, runtime: "direct" });
-    this.sessions.set(job.id, live);
+    live.unsub = unsub;
 
     await session.prompt(job.prompt);
     console.log("[pi:direct] done");

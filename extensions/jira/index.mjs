@@ -88,7 +88,16 @@ export function jiraExtension() {
       app.post("/api/jira/trigger", async (c) => {
         const body = await c.req.json();
         const { issueKey: key, prompt } = await buildPrompt(config, body);
-        const job = await store.create({ kind: "jira", title: key, issueKey: key, prompt, model: body.model, body, autoComment: body.autoComment });
+        // Find existing session for this issue key, or create new
+        const existing = store.findByIssueKey(key);
+        if (existing && (existing.status === "completed" || existing.status === "idle" || existing.status === "interrupted")) {
+          // Continue existing session
+          await store.update(existing.id, { status: "queued", prompt });
+          await store.event(existing.id, "follow_up.queued", { prompt: prompt.slice(0, 500), source: "jira_trigger" });
+          runner.enqueue(store.get(existing.id));
+          return c.json({ job: store.pub(store.get(existing.id)), continued: true }, 202);
+        }
+        const job = await store.create({ kind: "jira", title: key, issueKey: key, prompt, model: body.model || config.runtime.model, body, autoComment: body.autoComment });
         runner.enqueue(job);
         return c.json({ job: store.pub(job) }, 202);
       });
@@ -103,7 +112,15 @@ export function jiraExtension() {
         const statusMatch = status && config.jira.triggerStatuses.includes(status);
         if (!mentioned && !statusMatch) return c.json({ ignored: true, reason: "no match" }, 202);
         const { prompt } = await buildPrompt(config, body);
-        const job = await store.create({ kind: "jira", title: key, issueKey: key, prompt, body, autoComment: body.autoComment });
+        // Find existing session for this issue key, or create new
+        const existing = store.findByIssueKey(key);
+        if (existing && (existing.status === "completed" || existing.status === "idle" || existing.status === "interrupted")) {
+          await store.update(existing.id, { status: "queued", prompt });
+          await store.event(existing.id, "follow_up.queued", { prompt: prompt.slice(0, 500), source: "jira_webhook" });
+          runner.enqueue(store.get(existing.id));
+          return c.json({ job: store.pub(store.get(existing.id)), continued: true }, 202);
+        }
+        const job = await store.create({ kind: "jira", title: key, issueKey: key, prompt, model: config.runtime.model, body, autoComment: body.autoComment });
         runner.enqueue(job);
         return c.json({ job: store.pub(job) }, 202);
       });
