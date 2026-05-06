@@ -164,7 +164,13 @@ export class PiRuntime {
     await mkdir(jobDir, { recursive: true });
 
     // Clone configured repos into per-job worktrees
-    const repoCache = new RepoCache(this.config);
+    let repoToken = null;
+    try {
+      const { GitHubClient: GHC } = await import("../../extensions/github/client.mjs");
+      const gh = new GHC(this.config);
+      if (gh.configured) repoToken = await gh.getInstallationToken();
+    } catch {}
+    const repoCache = new RepoCache(this.config, repoToken);
     const mountedRepos = [];
     const configuredRepos = this.config.github?.repos || [];
 
@@ -279,12 +285,15 @@ export class PiRuntime {
 
     // Build GitHub env vars
     const githubEnv = {};
-    const ghTokenPath = resolve(this.config.paths.data, "github-oauth-tokens.json");
-    let ghAccessToken = this.config.github?.token || "";
-    if (!ghAccessToken && existsSync(ghTokenPath)) {
-      try { ghAccessToken = JSON.parse(readFileSync(ghTokenPath, "utf8")).access_token || ""; } catch {}
+    // Get a fresh GitHub App installation token
+    const { GitHubClient } = await import("../../extensions/github/client.mjs");
+    const ghClient = new GitHubClient(this.config);
+    if (ghClient.configured) {
+      try {
+        const ghToken = await ghClient.getInstallationToken();
+        githubEnv.GITHUB_ACCESS_TOKEN = ghToken;
+      } catch (e) { console.log("[pi] GitHub token error:", e.message); }
     }
-    if (ghAccessToken) githubEnv.GITHUB_ACCESS_TOKEN = ghAccessToken;
 
     const created = await vm.createSession("pi", {
       cwd: VM_WORKSPACE,

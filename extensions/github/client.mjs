@@ -1,59 +1,54 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { createSign } from "node:crypto";
 import { fetchJson } from "../../src/core/http.mjs";
+
+function base64url(buf) {
+  return Buffer.from(buf).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function generateJwt(appId, pemPath) {
+  const pem = readFileSync(pemPath);
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const now = Math.floor(Date.now() / 1000);
+  const payload = base64url(JSON.stringify({ iss: String(appId), iat: now - 60, exp: now + 540 }));
+  const sig = base64url(createSign("RSA-SHA256").update(`${header}.${payload}`).sign(pem));
+  return `${header}.${payload}.${sig}`;
+}
 
 export class GitHubClient {
   constructor(config) {
     this.config = config;
-    this._tokenCache = null;
+    this._installationToken = null;
+    this._tokenExpiresAt = 0;
   }
 
-  get configured() { return Boolean(this.config.github?.oauth?.clientId) || Boolean(this.config.github?.token); }
+  get appId() { return this.config.github?.app?.appId || ""; }
+  get installationId() { return this.config.github?.app?.installationId || ""; }
+  get pemPath() { return this.config.github?.app?.pemPath || ""; }
+  get configured() { return Boolean(this.appId && this.installationId && this.pemPath && existsSync(this.pemPath)); }
 
-  // --- Token management ---
+  async getInstallationToken() {
+    // Reuse if still valid (5 min buffer)
+    if (this._installationToken && Date.now() < this._tokenExpiresAt - 5 * 60_000) {
+      return this._installationToken;
+    }
 
-  _tokenPath() { return resolve(this.config.paths.data, "github-oauth-tokens.json"); }
-
-  _loadTokens() {
-    if (this._tokenCache) return this._tokenCache;
-    const p = this._tokenPath();
-    if (!existsSync(p)) return null;
-    try { this._tokenCache = JSON.parse(readFileSync(p, "utf8")); return this._tokenCache; } catch { return null; }
-  }
-
-  _saveTokens(tokens) {
-    this._tokenCache = tokens;
-    writeFileSync(this._tokenPath(), JSON.stringify(tokens, null, 2));
-  }
-
-  getAccessToken() {
-    // Personal access token from env
-    if (this.config.github?.token) return this.config.github.token;
-    // OAuth token
-    const tokens = this._loadTokens();
-    return tokens?.access_token || null;
-  }
-
-  async exchangeCode(code) {
-    const res = await fetchJson("https://github.com/login/oauth/access_token", {
+    const jwt = generateJwt(this.appId, this.pemPath);
+    const res = await fetchJson(`https://api.github.com/app/installations/${this.installationId}/access_tokens`, {
       method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: this.config.github.oauth.clientId,
-        client_secret: this.config.github.oauth.clientSecret,
-        code,
-      }),
+      headers: { Authorization: `Bearer ${jwt}`, Accept: "application/vnd.github+json" },
     });
-    if (res.error) throw new Error(`GitHub OAuth error: ${res.error_description || res.error}`);
-    this._saveTokens({ access_token: res.access_token, scope: res.scope, token_type: res.token_type });
-    return this._loadTokens();
-  }
 
-  // --- API ---
+    if (!res.token) throw new Error("GitHub App token exchange failed: " + JSON.stringify(res));
+    this._installationToken = res.token;
+    this._tokenExpiresAt = new Date(res.expires_at).getTime();
+    console.log("[github] installation token refreshed, expires:", res.expires_at);
+    return this._installationToken;
+  }
 
   async req(path, opts = {}) {
-    const token = this.getAccessToken();
-    if (!token) throw new Error("GitHub not authenticated. Visit /api/github/oauth/authorize");
+    const token = await this.getInstallationToken();
     return fetchJson(`https://api.github.com${path}`, {
       ...opts,
       headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", ...opts.headers },
@@ -61,12 +56,14 @@ export class GitHubClient {
   }
 
   async listRepos({ query, perPage = 30 } = {}) {
+    // Installation repos endpoint
+    const res = await this.req(`/installation/repositories?per_page=${perPage}`);
+    const repos = res.repositories || [];
     if (query) {
-      const owner = this.config.github.defaultOwner;
-      const q = owner ? `${query} org:${owner}` : query;
-      return this.req(`/search/repositories?q=${encodeURIComponent(q)}&per_page=${perPage}`);
+      const q = query.toLowerCase();
+      return repos.filter((r) => r.full_name.toLowerCase().includes(q) || (r.description || "").toLowerCase().includes(q));
     }
-    return this.req(`/user/repos?per_page=${perPage}&sort=updated&type=all`);
+    return repos;
   }
 
   async getRepo(owner, repo) { return this.req(`/repos/${owner}/${repo}`); }
@@ -74,7 +71,7 @@ export class GitHubClient {
   async createPullRequest({ owner, repo, title, body, head, base }) {
     return this.req(`/repos/${owner}/${repo}/pulls`, {
       method: "POST",
-      body: JSON.stringify({ title, body, head, base: base || this.config.github.defaultBase || "main" }),
+      body: JSON.stringify({ title, body, head, base: base || this.config.github?.defaultBase || "main" }),
     });
   }
 

@@ -79,6 +79,11 @@ export async function loadConfig() {
         clientSecret: process.env.GITHUB_OAUTH_CLIENT_SECRET || "",
       },
       repos: list(process.env.GITHUB_REPOS || ""),  // e.g. "owner/repo1,owner/repo2"
+      app: {
+        appId: process.env.GITHUB_APP_ID || "",
+        installationId: process.env.GITHUB_INSTALLATION_ID || "",
+        pemPath: process.env.GITHUB_APP_PEM_PATH || "/root/.github-app/private-key.pem",
+      },
     },
     browser: {
       headless: bool("BROWSER_HEADLESS", true),

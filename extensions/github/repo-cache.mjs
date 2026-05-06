@@ -15,8 +15,9 @@ import { slug } from "../../src/core/ids.mjs";
  *   branch: agent/<jobId>
  */
 export class RepoCache {
-  constructor(config) {
+  constructor(config, token) {
     this.config = config;
+    this._token = token || null;
   }
 
   _cachePath(owner, repo) {
@@ -24,16 +25,7 @@ export class RepoCache {
   }
 
   _authArgs() {
-    // Try GitHub OAuth token, then PAT
-    let token = null;
-    try {
-      const p = resolve(this.config.paths.data, "github-oauth-tokens.json");
-      if (existsSync(p)) {
-        const t = JSON.parse(require("node:fs").readFileSync(p, "utf8"));
-        token = t.access_token;
-      }
-    } catch {}
-    if (!token) token = this.config.github?.token;
+    const token = this._token || this.config.github?.token;
     if (!token) return [];
     return ["-c", `http.extraHeader=Authorization: Bearer ${token}`];
   }
