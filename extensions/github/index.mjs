@@ -1,51 +1,54 @@
-import { hostTool, toolKit } from "@rivet-dev/agent-os-core";
-import { z } from "zod";
-import { fetchJson } from "../../src/core/http.mjs";
-
-class GitHub {
-  constructor(config) { this.config = config; }
-  get ok() { return Boolean(this.config.github.token); }
-  req(path, opts = {}) {
-    if (!this.ok) throw new Error("GITHUB_TOKEN not set");
-    return fetchJson(`https://api.github.com${path}`, { ...opts, headers: { Authorization: `Bearer ${this.config.github.token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", ...opts.headers } });
-  }
-  listRepos(query, perPage = 50) {
-    if (query) { const q = this.config.github.defaultOwner ? `${query} org:${this.config.github.defaultOwner}` : query; return this.req(`/search/repositories?q=${encodeURIComponent(q)}&per_page=${perPage}`); }
-    return this.req(`/user/repos?per_page=${perPage}&sort=updated`);
-  }
-  getRepo(owner, repo) { return this.req(`/repos/${owner}/${repo}`); }
-  createPr({ owner, repo, title, body, head, base }) {
-    if (!this.config.github.allowPr) throw new Error("PR creation disabled");
-    return this.req(`/repos/${owner}/${repo}/pulls`, { method: "POST", body: JSON.stringify({ title, body, head, base: base || this.config.github.defaultBase }) });
-  }
-  commentPr({ owner, repo, number, body }) { return this.req(`/repos/${owner}/${repo}/issues/${number}/comments`, { method: "POST", body: JSON.stringify({ body }) }); }
-}
+import { GitHubClient } from "./client.mjs";
+import { RepoCache } from "./repo-cache.mjs";
 
 export function githubExtension() {
   return {
     id: "github",
-    description: "GitHub repo discovery and PR tools",
-    toolkits({ config }) {
-      const gh = new GitHub(config);
-      return [toolKit({
-        name: "github",
-        description: "GitHub tools",
-        tools: {
-          list_repos: hostTool({ description: "List/search repos.", inputSchema: z.object({ query: z.string().optional(), perPage: z.number().default(50) }), execute: ({ query, perPage }) => gh.listRepos(query, perPage) }),
-          get_repo: hostTool({ description: "Get repo metadata.", inputSchema: z.object({ owner: z.string(), repo: z.string() }), execute: ({ owner, repo }) => gh.getRepo(owner, repo) }),
-          create_pr: hostTool({ description: "Open a PR.", inputSchema: z.object({ owner: z.string(), repo: z.string(), title: z.string(), body: z.string(), head: z.string(), base: z.string().optional() }), execute: (i) => gh.createPr(i) }),
-          comment_pr: hostTool({ description: "Comment on PR.", inputSchema: z.object({ owner: z.string(), repo: z.string(), number: z.number(), body: z.string() }), execute: (i) => gh.commentPr(i) }),
-        },
-      })];
-    },
-  };
-}
+    description: "GitHub OAuth, repo cloning, and PR tools",
 
-export function parseGitHubRepo(input) {
-  const s = String(input || "").trim();
-  let m = s.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
-  if (m) return { owner: m[1], repo: m[2] };
-  m = s.match(/^([^/\s]+)\/([^/\s]+)$/);
-  if (m) return { owner: m[1], repo: m[2] };
-  return null;
+    routes(app, { config }) {
+      // --- OAuth routes ---
+
+      app.get("/api/github/oauth/authorize", (c) => {
+        const oauth = config.github?.oauth;
+        if (!oauth?.clientId) return c.json({ error: "GITHUB_OAUTH_CLIENT_ID not configured" }, 400);
+        const scopes = "repo read:org";
+        const state = Math.random().toString(36).slice(2);
+        const callbackUrl = `${c.req.header("x-forwarded-proto") || "http"}://${c.req.header("host")}/api/github/oauth/callback`;
+        const url = `https://github.com/login/oauth/authorize?client_id=${oauth.clientId}&scope=${encodeURIComponent(scopes)}&redirect_uri=${encodeURIComponent(callbackUrl)}&state=${state}`;
+        return c.redirect(url);
+      });
+
+      app.get("/api/github/oauth/callback", async (c) => {
+        const code = c.req.query("code");
+        if (!code) return c.json({ error: "No authorization code" }, 400);
+        const gh = new GitHubClient(config);
+        try {
+          const tokens = await gh.exchangeCode(code);
+          // Fetch user info
+          let user = null;
+          try { user = await gh.req("/user"); } catch {}
+          return c.html(`<h1>GitHub connected</h1><p>User: ${user?.login || "connected"}</p><p>Scopes: ${tokens.scope}</p><p><a href="/ui">Back to dashboard</a></p>`);
+        } catch (e) {
+          return c.json({ error: e.message }, 500);
+        }
+      });
+
+      app.get("/api/github/oauth/status", async (c) => {
+        const gh = new GitHubClient(config);
+        if (!gh.configured) return c.json({ connected: false });
+        const token = gh.getAccessToken();
+        if (!token) return c.json({ connected: false, mode: "oauth", needsAuth: true });
+        try {
+          const user = await gh.req("/user");
+          return c.json({ connected: true, user: user.login, scopes: gh._loadTokens()?.scope || "pat" });
+        } catch {
+          return c.json({ connected: false, mode: "oauth", needsAuth: true });
+        }
+      });
+    },
+
+    // No Agent OS host toolkits needed — git/github tools are Pi native extensions
+    toolkits() { return []; },
+  };
 }

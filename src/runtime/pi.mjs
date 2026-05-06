@@ -8,6 +8,8 @@ import pi from "@rivet-dev/agent-os-pi";
 import { collectToolkits } from "../core/extension.mjs";
 import { systemPrompt } from "../agents/default.mjs";
 import { piJiraExtensionSource } from "./pi-jira-extension.mjs";
+import { piGitHubExtensionSource } from "./pi-github-extension.mjs";
+import { RepoCache } from "../../extensions/github/repo-cache.mjs";
 import { trim } from "../core/redact.mjs";
 
 // Direct Pi SDK imports for fallback runtime
@@ -159,15 +161,37 @@ export class PiRuntime {
   // ── Agent OS runtime ─────────────────────────────────────────
   async _startAgentOs(job, onEvent) {
     const jobDir = job.workspacePath;
-    const jobRepoDir = resolve(jobDir, "repo");
     await mkdir(jobDir, { recursive: true });
 
-    if (this.config.workspace.exists && !existsSync(jobRepoDir)) {
-      console.log("[pi:agentos] cloning workspace...");
-      await onEvent("job.cloning", { src: this.config.workspace.path });
-      const result = await cloneWorkspace(this.config.workspace.path, jobRepoDir);
-      console.log("[pi:agentos] clone done:", result.method);
-      await onEvent("job.cloned", result);
+    // Clone configured repos into per-job worktrees
+    const repoCache = new RepoCache(this.config);
+    const mountedRepos = [];
+    const configuredRepos = this.config.github?.repos || [];
+
+    if (configuredRepos.length) {
+      await onEvent("job.cloning_repos", { repos: configuredRepos });
+      for (const repoSpec of configuredRepos) {
+        const [owner, repo] = repoSpec.split("/");
+        if (!owner || !repo) continue;
+        try {
+          const wt = await repoCache.createWorktree(owner, repo, job.id, jobDir);
+          mountedRepos.push(wt);
+          console.log(`[pi:agentos] repo ${owner}/${repo} -> ${wt.hostPath} branch: ${wt.branch}`);
+        } catch (e) {
+          console.log(`[pi:agentos] failed to clone ${repoSpec}:`, e.message.slice(0, 200));
+          await onEvent("job.clone_failed", { repo: repoSpec, error: e.message.slice(0, 200) });
+        }
+      }
+      await onEvent("job.repos_ready", { repos: mountedRepos.map((r) => ({ path: r.agentPath, branch: r.branch })) });
+    } else if (this.config.workspace.exists) {
+      // Fallback: clone WORKSPACE_PATH if no repos configured
+      const jobRepoDir = resolve(jobDir, "repo");
+      if (!existsSync(jobRepoDir)) {
+        await onEvent("job.cloning", { src: this.config.workspace.path });
+        const result = await cloneWorkspace(this.config.workspace.path, jobRepoDir);
+        await onEvent("job.cloned", result);
+      }
+      if (existsSync(jobRepoDir)) mountedRepos.push({ hostPath: jobRepoDir, agentPath: VM_WORKSPACE, branch: null });
     }
 
     const model = job.model || this.config.runtime.model;
@@ -175,11 +199,40 @@ export class PiRuntime {
     if (model?.includes("/")) [defaultProvider, defaultModel] = model.split("/", 2);
     else if (model) defaultModel = model;
 
-    const hasRepo = existsSync(jobRepoDir);
-    const mounts = hasRepo ? [{ path: VM_WORKSPACE, driver: createHostDirBackend({ hostPath: jobRepoDir, readOnly: false }), readOnly: false }] : [];
+    // Build mounts from cloned repos
+    const mounts = mountedRepos.map((r) => ({
+      path: r.agentPath,
+      driver: createHostDirBackend({ hostPath: r.hostPath, readOnly: false }),
+      readOnly: false,
+    }));
 
     const toolKits = collectToolkits({ config: this.config, job, processes: this.processes }, this.extensions);
     const vm = await AgentOs.create({ software: [common, pi], mounts, toolKits, additionalInstructions: systemPrompt(this.mode) });
+
+    // Write agents.md into workspace
+    await vm.mkdir(VM_WORKSPACE, { recursive: true });
+    const agentsMdPath = resolve(this.config.root, "agents.md");
+    if (existsSync(agentsMdPath)) {
+      await vm.writeFile(`${VM_WORKSPACE}/agents.md`, readFileSync(agentsMdPath, "utf8"));
+    } else {
+      // Default agents.md
+      const repoList = mountedRepos.map((r) => `- ${r.agentPath} (branch: ${r.branch || "default"})`).join("\n");
+      await vm.writeFile(`${VM_WORKSPACE}/agents.md`, [
+        "# Agent Workspace",
+        "",
+        "You are a background coding agent.",
+        "",
+        repoList ? `## Repositories\n${repoList}\n` : "",
+        "## Workflow",
+        "1. Read the task/ticket carefully",
+        "2. Inspect the relevant code",
+        "3. Make the smallest safe change",
+        "4. Use git_commit to commit your changes",
+        "5. Use git_push to push your branch",
+        "6. Use gh_pr_create to open a pull request",
+        "7. Report results on the Jira ticket if applicable",
+      ].filter(Boolean).join("\n"));
+    }
 
     // Write Pi config into VFS
     const piDir = `${VM_HOME}/.pi/agent`;
@@ -205,6 +258,9 @@ export class PiRuntime {
     // Jira extension: reads OAuth config from env vars
     await vm.writeFile(`${extDir}/jira-tools.js`, piJiraExtensionSource());
 
+    // GitHub extension: git + GitHub API tools
+    await vm.writeFile(`${extDir}/github-tools.js`, piGitHubExtensionSource());
+
     // Build Jira env vars for the extension
     const jiraEnv = {};
     const jiraTokens = this._loadJiraTokens();
@@ -221,6 +277,15 @@ export class PiRuntime {
       jiraEnv.JIRA_API_TOKEN = this.config.jira.token;
     }
 
+    // Build GitHub env vars
+    const githubEnv = {};
+    const ghTokenPath = resolve(this.config.paths.data, "github-oauth-tokens.json");
+    let ghAccessToken = this.config.github?.token || "";
+    if (!ghAccessToken && existsSync(ghTokenPath)) {
+      try { ghAccessToken = JSON.parse(readFileSync(ghTokenPath, "utf8")).access_token || ""; } catch {}
+    }
+    if (ghAccessToken) githubEnv.GITHUB_ACCESS_TOKEN = ghAccessToken;
+
     const created = await vm.createSession("pi", {
       cwd: VM_WORKSPACE,
       env: {
@@ -230,6 +295,7 @@ export class PiRuntime {
         ...(process.env.OPENAI_BASE_URL ? { OPENAI_BASE_URL: process.env.OPENAI_BASE_URL } : {}),
         ...(process.env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL } : {}),
         ...jiraEnv,
+        ...githubEnv,
       },
       additionalInstructions: systemPrompt(this.mode),
     });

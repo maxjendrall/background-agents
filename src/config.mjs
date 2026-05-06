@@ -74,6 +74,11 @@ export async function loadConfig() {
       defaultBase: process.env.GITHUB_DEFAULT_BASE || "main",
       allowPush: bool("GIT_ALLOW_PUSH"),
       allowPr: bool("GITHUB_ALLOW_PR"),
+      oauth: {
+        clientId: process.env.GITHUB_OAUTH_CLIENT_ID || "",
+        clientSecret: process.env.GITHUB_OAUTH_CLIENT_SECRET || "",
+      },
+      repos: list(process.env.GITHUB_REPOS || ""),  // e.g. "owner/repo1,owner/repo2"
     },
     browser: {
       headless: bool("BROWSER_HEADLESS", true),
