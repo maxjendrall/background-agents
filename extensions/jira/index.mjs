@@ -82,7 +82,16 @@ export function jiraExtension() {
 
         // Find existing session for this issue key, or create new
         const existing = store.findByIssueKey(key);
-        if (existing && (existing.status === "completed" || existing.status === "idle" || existing.status === "interrupted")) {
+        if (existing && existing.status !== "cancelled" && existing.status !== "queued") {
+          // If running, just log the follow-up event — the debounce will catch the next window
+          if (existing.status === "running") {
+            await store.event(existing.id, "follow_up.pending", { prompt: prompt.slice(0, 500), source: "jira_webhook", note: "job is running, will retry" });
+            // Re-buffer for retry after current run completes
+            const retryBuf = { events: buf.events, firstBody: buf.firstBody, timer: null };
+            retryBuf.timer = setTimeout(() => flushWebhook(key), 15_000);
+            webhookBuffer.set(key, retryBuf);
+            return;
+          }
           await store.update(existing.id, { status: "queued", prompt });
           await store.event(existing.id, "follow_up.queued", { prompt: prompt.slice(0, 500), source: "jira_webhook", batchSize: buf.events.length });
           runner.enqueue(store.get(existing.id));
@@ -131,7 +140,10 @@ export function jiraExtension() {
         const body = await c.req.json();
         const { issueKey: key, prompt } = await buildPrompt(config, body);
         const existing = store.findByIssueKey(key);
-        if (existing && (existing.status === "completed" || existing.status === "idle" || existing.status === "interrupted")) {
+        if (existing && (existing.status !== "cancelled" && existing.status !== "queued")) {
+          if (existing.status === "running") {
+            return c.json({ job: store.pub(existing), running: true, message: "Job is running, follow-up will be delivered after current turn" }, 202);
+          }
           await store.update(existing.id, { status: "queued", prompt });
           await store.event(existing.id, "follow_up.queued", { prompt: prompt.slice(0, 500), source: "jira_trigger" });
           runner.enqueue(store.get(existing.id));

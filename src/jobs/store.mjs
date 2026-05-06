@@ -51,9 +51,9 @@ export class JobStore {
 
   findByIssueKey(issueKey) {
     if (!issueKey) return null;
-    // Find the most recent job for this issue key that isn't failed/cancelled
+    // Find the most recent job for this issue key that isn't cancelled
     const candidates = [...this.jobs.values()]
-      .filter((j) => j.issueKey === issueKey && j.status !== "failed" && j.status !== "cancelled")
+      .filter((j) => j.issueKey === issueKey && j.status !== "cancelled")
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return candidates[0] || null;
   }
