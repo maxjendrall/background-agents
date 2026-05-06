@@ -20,3 +20,13 @@ src = src
 
 writeFileSync(file, src);
 console.log("[patch] patched wasi-polyfill.js BigInt timestamp bug");
+
+// Patch ACP client timeout from 120s to 600s
+const acpFile = resolve(process.cwd(), "node_modules/@rivet-dev/agent-os-core/dist/acp-client.js");
+let acpSrc;
+try { acpSrc = readFileSync(acpFile, "utf8"); } catch { process.exit(0); }
+if (acpSrc.includes("120_000") && !acpSrc.includes("600_000")) {
+  acpSrc = acpSrc.replace("const DEFAULT_TIMEOUT_MS = 120_000;", "const DEFAULT_TIMEOUT_MS = 600_000;");
+  writeFileSync(acpFile, acpSrc);
+  console.log("[patch] increased ACP timeout to 600s");
+}

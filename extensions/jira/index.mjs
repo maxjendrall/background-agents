@@ -31,6 +31,12 @@ async function buildPrompt(config, body, batchedEvents) {
     const webhookEvent = evt.webhookEvent || "trigger";
     const user = evt.user?.displayName || evt.comment?.author?.displayName || "unknown";
     if (comment) return `[${user}] commented: ${trim(comment, 2000)}`;
+    // Include changelog for field updates
+    const changelog = evt.changelog?.items;
+    if (changelog?.length) {
+      const changes = changelog.map((c) => `${c.field}: "${c.fromString || ""}" → "${c.toString || ""}"`).join(", ");
+      return `[${user}] ${webhookEvent}: ${changes}`;
+    }
     return `[${webhookEvent}] ${evt.issue?.fields?.status?.name || ""}`;
   });
 
@@ -42,7 +48,7 @@ async function buildPrompt(config, body, batchedEvents) {
     ...eventSummaries.map((s) => `- ${s}`),
     extra ? `\nAdditional instructions: ${trim(extra, 20_000)}` : "",
     issue ? `\n--- Jira Issue ---\n${JSON.stringify(issue, null, 2)}` : `\n(Could not fetch issue details. Use jira_get_issue tool to read it.)`,
-    comments?.comments?.length ? `\n--- Recent Comments ---\n${JSON.stringify(comments.comments.slice(0, 10), null, 2)}` : "",
+    comments?.comments?.length ? `\n--- Recent Comments (last ${Math.min(comments.comments.length, 20)}) ---\n${JSON.stringify(comments.comments.slice(0, 20), null, 2)}` : "",
     ``,
     `Instructions:`,
     `1. Read the issue and comments carefully.`,
