@@ -47,11 +47,14 @@ export class RepoCache {
     const branch = `agent/${jobId}`;
     await mkdir(resolve(jobWorkspacePath, "repos"), { recursive: true });
 
-    try { this._git(cache, ["worktree", "prune"]); } catch {}
+    // Clean up stale worktree references and old directory
     if (existsSync(hostPath)) {
       const { rmSync } = await import("node:fs");
       rmSync(hostPath, { recursive: true, force: true });
     }
+    try { this._git(cache, ["worktree", "prune"]); } catch {}
+    // Force-remove the branch if it exists from a previous run
+    try { this._git(cache, ["branch", "-D", branch]); } catch {}
 
     this._git(cache, ["worktree", "add", "-B", branch, hostPath, "HEAD"]);
     console.log(`[repo-cache] worktree created: ${hostPath} branch: ${branch}`);
