@@ -16,18 +16,33 @@ module.exports = function(pi) {
   }
 
   pi.registerTool({
+    name: "start_jira_agent",
+    description: "Start a child agent for a Jira issue. Fire-and-forget; cannot retrieve results.",
+    parameters: {
+      type: "object",
+      properties: {
+        issueKey: { type: "string", description: "Jira issue key, e.g. PT-1234." },
+        instructions: { type: "string", description: "Optional extra instructions. Omit to simply start work." },
+        title: { type: "string", description: "Optional child job title." },
+        model: { type: "string", description: "Optional model override." },
+        thinkingLevel: { type: "string", description: "Optional thinking level override." },
+        allowDuplicateIssue: { type: "boolean", description: "Allow even if issue already has a queued/running job." }
+      },
+      required: ["issueKey"]
+    },
+    execute: async (_id, params) => callHost("start_jira_agent", params),
+  });
+
+  pi.registerTool({
     name: "start_agent",
-    description: "Start a child background agent. Fire-and-forget; cannot retrieve its results.",
+    description: "Start a generic child agent. Fire-and-forget; cannot retrieve child results.",
     parameters: {
       type: "object",
       properties: {
         instructions: { type: "string", description: "Complete task instructions for the child agent." },
         title: { type: "string", description: "Short title for the child job." },
-        issueKey: { type: "string", description: "Optional Jira issue key for the child job." },
         model: { type: "string", description: "Optional model override." },
-        thinkingLevel: { type: "string", description: "Optional thinking level override." },
-        autoComment: { type: "boolean", description: "Whether server should auto-comment final output on Jira." },
-        allowDuplicateIssue: { type: "boolean", description: "Allow starting even if the issue already has a queued/running job." }
+        thinkingLevel: { type: "string", description: "Optional thinking level override." }
       },
       required: ["instructions"]
     },
