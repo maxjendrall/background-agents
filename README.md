@@ -60,6 +60,93 @@ flowchart TD
 6. Tool/text/thinking events pass through `JobEventSink`, which batches token streams and drops noisy partial tool-argument deltas before storing/streaming.
 7. `/app` loads compacted history from `/api/jobs/:id?events=1` and then follows incremental SSE updates from `/api/jobs/:id/events?after=<lastEventId>`.
 
+## Jira ticket pipelines
+
+This is the end-to-end path for ticket-triggered work, including the places where prompt fragments are added and where native tool calls flow.
+
+```mermaid
+flowchart TD
+  subgraph Ingress["Trigger paths"]
+    Webhook["Jira webhook<br/>POST /api/jira/webhook"] --> Match{"Mention, status, or label match?"}
+    Match -->|No| Ignored["Ignored<br/>or dry-run response"]
+    Match -->|Yes| Buffer["Per-issue debounce buffer<br/>5 second window"]
+    Buffer --> Flush["flushWebhook(issueKey)"]
+    Manual["Manual Jira trigger<br/>POST /api/jira/trigger"]
+    JobFollow["Existing ticket follow-up<br/>POST /api/jobs/:id/prompt"]
+    RunIssue["Generic run with issueKey<br/>POST /api/run"]
+    ChildTool["Agent tool call<br/>start_jira_agent"]
+  end
+
+  subgraph Prompting["Prompt assembly"]
+    Flush --> Build["buildPrompt(config, body, events)"]
+    Manual --> Build
+    Build --> IssueKey["Resolve issue key"]
+    IssueKey --> Fetch["Fetch Jira issue<br/>and recent comments"]
+    Fetch --> Markdown["Convert Jira ADF<br/>to Markdown"]
+    Markdown --> Happened["Add What just happened<br/>from trigger summaries"]
+    Happened --> Extra["Add prompt or instructions<br/>as Additional instructions"]
+    Extra --> Context["Add issue context<br/>and comment history"]
+    Context --> Rules["Add Jira rules<br/>one final jira_add_comment<br/>native Git and GitHub tools"]
+    JobFollow --> FollowPrompt["Caller follow-up prompt"]
+    RunIssue --> RunPrompt["Caller prompt"]
+    ChildTool --> ChildPrompt["Child Jira prompt<br/>independent agent<br/>parent instructions<br/>required workflow"]
+  end
+
+  subgraph Queueing["Store and queue"]
+    Rules --> Existing{"Existing non-cancelled<br/>issue job?"}
+    Existing -->|Running webhook| Pending["follow_up.pending<br/>retry after current run"]
+    Pending --> Buffer
+    Existing -->|Reusable job| Update["store.update<br/>status queued plus prompt"]
+    Existing -->|New job| Create["store.create<br/>kind jira plus issueKey"]
+    FollowPrompt --> Update
+    RunPrompt --> Create
+    ChildPrompt --> Create
+    Update --> Policy["JobStore withJiraCommentPolicy<br/>for any issueKey job"]
+    Create --> Policy
+    Policy --> Enqueue["runner.enqueue"]
+  end
+
+  subgraph Runtime["Execution destination"]
+    Enqueue --> Runner["JobRunner<br/>MAX_CONCURRENCY"]
+    Runner --> Start["job.started"]
+    Start --> PiRuntime["PiRuntime.run"]
+    PiRuntime --> Session{"Live Pi session?"}
+    Session -->|Yes| Reuse["Send follow-up<br/>followUp or steer mode"]
+    Session -->|No| Boot["Boot AgentOS<br/>AGENT_BOOT_CONCURRENCY gate"]
+    Boot --> Workspace["Clone or mount repos<br/>mount sessions and artifacts"]
+    Workspace --> Extensions["Install Pi extensions<br/>Jira, Git, GitHub, Figma,<br/>Contentful, agents, MicroVM"]
+    Reuse --> Agent["Pi coding agent"]
+    Extensions --> Agent
+  end
+
+  subgraph Tools["Tool calls, events, and completion"]
+    Agent --> NativeTools["Native coding tools<br/>read, edit, bash, grep,<br/>list_directory, find_files"]
+    Agent --> ApiTools["Native API or host tools<br/>jira, git, GitHub, Figma,<br/>Contentful, view, vm_bash,<br/>start_jira_agent"]
+    NativeTools --> ToolEvents["tool_start<br/>input snapshot<br/>completed or failed result"]
+    ApiTools --> ToolEvents
+    ToolEvents --> Sink["JobEventSink<br/>drops partial tool args<br/>batches text and thinking"]
+    Sink --> Events["events.jsonl<br/>SSE to /app"]
+    Agent --> Final{"Final Jira comment recorded?"}
+    Final -->|Yes| Complete["job.completed"]
+    Final -->|No and auto-continue enabled| Continue["Continuation prompt<br/>missing_final_jira_comment"]
+    Continue --> Enqueue
+    Final -->|No and limit exhausted| Interrupted["job.interrupted"]
+    Complete --> JiraDone["Jira updated by jira_add_comment<br/>or optional autoComment fallback"]
+  end
+```
+
+Prompt fragments by entry point:
+
+| Entry point | Prompt fragments added before the job runs |
+| --- | --- |
+| `POST /api/jira/webhook` | Debounced matching webhook events become **What just happened** bullets, then issue context, recent comment history, Jira rules, and the final Jira comment policy. |
+| `POST /api/jira/trigger` | Same `buildPrompt` path as webhooks, but from one request body rather than the debounce buffer. |
+| `POST /api/jobs/:id/prompt` | Uses the caller's follow-up text; if the job has an `issueKey`, `withJiraCommentPolicy` is appended. |
+| `POST /api/run` with `issueKey` | Uses the caller's prompt; `JobStore.create` appends `withJiraCommentPolicy`. |
+| `start_jira_agent` tool | Builds an independent child-agent prompt with parent instructions, required Jira workflow, and the final Jira comment policy. |
+
+For ticket jobs, tool-call noise is intentionally reduced before it reaches the UI: partial JSON argument deltas are dropped, one stable input snapshot is kept, and terminal tool results are stored/streamed.
+
 ## Runtime model and sessions
 
 - Default model is configured by `AGENT_MODEL` and `AGENT_THINKING`.
