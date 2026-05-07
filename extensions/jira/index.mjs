@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { JiraClient } from "./client.mjs";
 import { trim } from "../../src/core/redact.mjs";
 import { formatIssue, formatComments } from "./format.mjs";
+import { assertJiraCommentAllowed } from "../../src/agents/jira-policy.mjs";
 
 function issueKey(body) {
   return body?.issueKey || body?.issue_key || body?.key || body?.issue?.key || "";
@@ -264,6 +265,7 @@ export function jiraExtension() {
     toolkits({ config, job }) {
       const jira = new JiraClient(config);
       const jiraArtifactsDir = job?.jiraArtifactsDir || (job?.workspacePath ? resolve(job.workspacePath, "jira-artifacts") : resolve(config.paths.data, "jira-attachments"));
+      let jiraCommentSent = false;
       return [toolKit({
         name: "jira",
         description: "Jira issue tools",
@@ -281,7 +283,13 @@ export function jiraExtension() {
           board_jql: hostTool({ description: "Resolve a Jira board id or /board/3 path to the board filter JQL.", inputSchema: z.object({ board: z.string().min(1) }), execute: ({ board }) => jira.getBoardJql(board) }),
           board_search: hostTool({ description: "Search issues constrained by a Jira board filter, optionally ANDed with extra JQL.", inputSchema: z.object({ board: z.string().min(1), jql: z.string().default(""), max: z.number().default(10) }), execute: ({ board, jql, max }) => jira.searchBoard(board, jql, max) }),
           board_count: hostTool({ description: "Count issues constrained by a Jira board filter, optionally ANDed with extra JQL.", inputSchema: z.object({ board: z.string().min(1), jql: z.string().default("") }), execute: ({ board, jql }) => jira.countBoard(board, jql) }),
-          add_comment: hostTool({ description: "Comment on issue.", inputSchema: z.object({ issueKey: z.string().min(1), comment: z.string().min(1) }), execute: ({ issueKey, comment }) => jira.addComment(issueKey, comment) }),
+          add_comment: hostTool({ description: "Final end-of-turn comment on a Jira issue. Progress/plan/ack comments are rejected.", inputSchema: z.object({ issueKey: z.string().min(1), comment: z.string().min(1) }), execute: async ({ issueKey, comment }) => {
+            if (jiraCommentSent) throw new Error("A Jira comment was already added in this turn. Do not add another one unless a new external follow-up starts a new turn.");
+            assertJiraCommentAllowed(comment);
+            const result = await jira.addComment(issueKey, comment);
+            jiraCommentSent = true;
+            return result;
+          } }),
           list_transitions: hostTool({ description: "List transitions.", inputSchema: z.object({ issueKey: z.string().min(1) }), execute: ({ issueKey }) => jira.listTransitions(issueKey) }),
           transition_issue: hostTool({ description: "Transition issue.", inputSchema: z.object({ issueKey: z.string().min(1), transitionId: z.string().min(1) }), execute: ({ issueKey, transitionId }) => jira.transitionIssue(issueKey, transitionId) }),
         },

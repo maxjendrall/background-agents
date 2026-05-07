@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { id } from "../core/ids.mjs";
 import { redactData } from "../core/redact.mjs";
 import { compactEvents, compactEventsAfter } from "../core/events.mjs";
+import { withJiraCommentPolicy } from "../agents/jira-policy.mjs";
 
 function now() { return new Date().toISOString(); }
 
@@ -28,6 +29,7 @@ export class JobStore {
         job.startedAt = null;
         job.completedAt = null;
         job.error = null;
+        if (job.issueKey) job.prompt = withJiraCommentPolicy(job.prompt);
         if ((job.result || job.output) && !job.resumeStrategy) job.resumeStrategy = "context";
         job.updatedAt = now();
         this.jobs.set(job.id, job);
@@ -49,7 +51,7 @@ export class JobStore {
       id: jobId, kind: input.kind || "agent", status: "queued",
       title: input.title || input.issueKey || "job",
       issueKey: input.issueKey || null,
-      prompt: input.prompt, model: input.model || this.config.runtime.model,
+      prompt: input.issueKey ? withJiraCommentPolicy(input.prompt) : input.prompt, model: input.model || this.config.runtime.model,
       thinkingLevel: input.thinkingLevel || input.thinking || this.config.runtime.thinkingLevel,
       messageMode: input.messageMode || input.mode || "follow_up",
       body: input.body || {}, autoComment: Boolean(input.autoComment),
@@ -78,6 +80,7 @@ export class JobStore {
   async update(jobId, patch) {
     const job = this.get(jobId);
     if (!job) throw new Error(`Unknown job: ${jobId}`);
+    if (job.issueKey && Object.hasOwn(patch, "prompt")) patch = { ...patch, prompt: withJiraCommentPolicy(patch.prompt) };
     Object.assign(job, patch, { updatedAt: now() });
     await this.#write(job);
     this.#emit(jobId, { type: "job.updated", ts: now(), data: this.pub(job) });

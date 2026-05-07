@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { registerRoutes, extensionList } from "../core/extension.mjs";
 import { auth } from "./auth.mjs";
+import { withJiraCommentPolicy } from "../agents/jira-policy.mjs";
 
 function persistEnv(root, updates) {
   const path = resolve(root, ".env");
@@ -178,7 +179,7 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
     const body = await c.req.json();
     const prompt = body.prompt || body.text;
     if (!prompt) return c.json({ error: "Missing prompt" }, 400);
-    const patch = { status: "queued", prompt };
+    const patch = { status: "queued", prompt: job.issueKey ? withJiraCommentPolicy(prompt) : prompt };
     if (body.model) patch.model = body.model;
     if (body.thinkingLevel || body.thinking) patch.thinkingLevel = body.thinkingLevel || body.thinking;
     if (body.messageMode || body.mode) patch.messageMode = body.messageMode || body.mode;
