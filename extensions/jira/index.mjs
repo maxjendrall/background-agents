@@ -19,6 +19,25 @@ function commentText(body) {
 
 function normLabel(s) { return String(s || "").trim().toLowerCase(); }
 function configuredLabelSet(config) { return new Set((config.jira.triggerLabels || []).map(normLabel).filter(Boolean)); }
+function configuredStatusSet(config) { return new Set((config.jira.triggerStatuses || []).map(normLabel).filter(Boolean)); }
+
+function statusTriggerInfo(config, body) {
+  const wanted = configuredStatusSet(config);
+  if (!wanted.size) return { matched: false, statuses: [] };
+
+  // Only status-change webhooks should match status triggers. Do not trigger on
+  // comments/other issue_updated events merely because the issue is currently
+  // in a configured status; that creates self-trigger loops when agents comment.
+  const changelog = body?.changelog?.items || [];
+  const statusChanges = changelog.filter((c) => normLabel(c.field) === "status");
+  const matched = [];
+  for (const c of statusChanges) {
+    const to = c.toString || body?.issue?.fields?.status?.name || "";
+    if (wanted.has(normLabel(to))) matched.push(to);
+  }
+  return { matched: matched.length > 0, statuses: matched };
+}
+
 function labelTriggerInfo(config, body) {
   const wanted = configuredLabelSet(config);
   if (!wanted.size) return { matched: false, labels: [] };
@@ -214,11 +233,12 @@ export function jiraExtension() {
 
         const text = commentText(body);
         const mentioned = text.includes(config.jira.triggerMention);
-        const status = body?.issue?.fields?.status?.name || "";
-        const statusMatch = status && config.jira.triggerStatuses.includes(status);
+        const statusInfo = statusTriggerInfo(config, body);
+        const statusMatch = statusInfo.matched;
         const labelInfo = labelTriggerInfo(config, body);
         const labelMatch = labelInfo.matched;
         if (!mentioned && !statusMatch && !labelMatch) return c.json({ ignored: true, reason: "no match" }, 202);
+        if (statusMatch) body._triggerReason = `Triggered because Jira status transitioned to: ${statusInfo.statuses.join(", ")}.`;
         if (labelMatch) body._triggerReason = `Triggered because Jira label matched: ${labelInfo.labels.join(", ")}.`;
 
         // Buffer this event, debounce 30s

@@ -101,12 +101,46 @@ export class PiRuntime {
     this.store = store;
     this.runner = runner || null;
     this.sessions = new Map();
+    this._bootActive = 0;
+    this._bootQueue = [];
+    this._bootReleases = new Map();
     this._reaper = setInterval(() => this._reapIdle(), 5 * 60_000);
     // "agentos" or "direct"
     this.mode = config.runtime.mode || "agentos";
   }
 
   setRunner(runner) { this.runner = runner; }
+
+  async _acquireBootSlot(jobId) {
+    const limit = Math.max(1, this.config.runtime.agentBootConcurrency || 1);
+    if (this._bootActive < limit) {
+      this._bootActive++;
+      return this._releaseBootSlot.bind(this);
+    }
+    await new Promise((resolve, reject) => this._bootQueue.push({ jobId, resolve, reject }));
+    this._bootActive++;
+    return this._releaseBootSlot.bind(this);
+  }
+
+  _releaseBootSlot() {
+    this._bootActive = Math.max(0, this._bootActive - 1);
+    const next = this._bootQueue.shift();
+    if (next) next.resolve();
+  }
+
+  _cancelBoot(jobId) {
+    const release = this._bootReleases.get(jobId);
+    if (release) {
+      release();
+      this._bootReleases.delete(jobId);
+    }
+    const keep = [];
+    for (const item of this._bootQueue) {
+      if (item.jobId === jobId) item.reject?.(new Error("boot cancelled"));
+      else keep.push(item);
+    }
+    this._bootQueue = keep;
+  }
 
   _reapIdle() {
     const maxIdle = 30 * 60_000;
@@ -322,6 +356,20 @@ export class PiRuntime {
       });
     }
 
+    const bootLimit = Math.max(1, this.config.runtime.agentBootConcurrency || 1);
+    await onEvent("agent.boot_wait", { concurrency: bootLimit });
+    const releaseBoot = await this._acquireBootSlot(job.id);
+    let bootReleased = false;
+    const releaseBootOnce = () => {
+      if (bootReleased) return;
+      bootReleased = true;
+      this._bootReleases.delete(job.id);
+      releaseBoot();
+    };
+    this._bootReleases.set(job.id, releaseBootOnce);
+
+    try {
+    await onEvent("agent.boot_start", { active: this._bootActive, concurrency: bootLimit });
     const toolKits = collectToolkits({ config: this.config, job, processes: this.processes, store: this.store, runner: this.runner, runtime: this }, this.extensions);
     const vm = await AgentOs.create({ software: [common, pi], mounts, toolKits, additionalInstructions: systemPrompt(this.mode) });
 
@@ -444,6 +492,7 @@ export class PiRuntime {
     const sessionId = created.sessionId;
     console.log("[pi:agentos] session:", sessionId, "model:", defaultProvider + "/" + defaultModel);
     await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, thinkingLevel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_list_attachments", "jira_download_attachment", "jira_search", "jira_count", "jira_board_jql", "jira_board_count", "figma_get_file", "figma_find_nodes", "figma_get_node_subtree", "figma_inspect_node", "figma_export_assets", "view_image", "list_directory", "find_files", "figma_get_components", "figma_get_styles", "figma_get_comments", "figma_get_images", "figma_search", "contentful_api_help", "contentful_http_get", "contentful_list_content_types", "contentful_get_content_type", "contentful_list_entries", "contentful_get_entry", "start_jira_agent", "start_agent", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
+    releaseBootOnce();
 
     // Create live session first so the event handler can reference it
     const live = new LiveSession({ vm, sessionId, unsub: null, runtime: "agentos", model: defaultProvider + "/" + defaultModel, thinkingLevel });
@@ -467,6 +516,9 @@ export class PiRuntime {
     console.log("[pi:agentos] done, text:", result.text?.length || 0);
     if (result.response?.error) throw new Error(result.response.error.message || JSON.stringify(result.response.error));
     return { sessionId, text: result.text || "" };
+    } finally {
+      releaseBootOnce();
+    }
   }
 
   // ── Direct Pi SDK runtime ────────────────────────────────────
@@ -547,6 +599,18 @@ export class PiRuntime {
     return { sessionId: session.sessionId, text: "" };
   }
 
-  disposeJob(jobId) { const s = this.sessions.get(jobId); if (s) { s.dispose(); this.sessions.delete(jobId); } }
-  disposeAll() { for (const s of this.sessions.values()) s.dispose(); this.sessions.clear(); clearInterval(this._reaper); }
+  disposeJob(jobId) {
+    this._cancelBoot(jobId);
+    const s = this.sessions.get(jobId);
+    if (s) { s.dispose(); this.sessions.delete(jobId); }
+  }
+  disposeAll() {
+    for (const item of this._bootQueue) item.reject?.(new Error("runtime disposed"));
+    this._bootQueue = [];
+    for (const release of this._bootReleases.values()) release();
+    this._bootReleases.clear();
+    for (const s of this.sessions.values()) s.dispose();
+    this.sessions.clear();
+    clearInterval(this._reaper);
+  }
 }

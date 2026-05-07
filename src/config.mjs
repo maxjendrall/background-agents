@@ -45,6 +45,7 @@ export async function loadConfig() {
       thinkingLevel: process.env.AGENT_THINKING || "xhigh",
       maxConcurrency: int("MAX_CONCURRENCY", 10),
       agentSpawnLimit: int("AGENT_SPAWN_LIMIT", 25),
+      agentBootConcurrency: int("AGENT_BOOT_CONCURRENCY", 1),
       mode: process.env.RUNTIME || "agentos", // "agentos" or "direct"
     },
     workspace: {
