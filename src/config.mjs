@@ -38,11 +38,13 @@ export async function loadConfig() {
       host: process.env.HOST || "127.0.0.1",
       port: int("PORT", 8787),
       token: process.env.AUTH_TOKEN || "",
+      publicUrl: process.env.PUBLIC_URL || "",
     },
     runtime: {
       model: process.env.AGENT_MODEL || "claude-sonnet-4-6",
       thinkingLevel: process.env.AGENT_THINKING || "xhigh",
       maxConcurrency: int("MAX_CONCURRENCY", 10),
+      agentSpawnLimit: int("AGENT_SPAWN_LIMIT", 25),
       mode: process.env.RUNTIME || "agentos", // "agentos" or "direct"
     },
     workspace: {

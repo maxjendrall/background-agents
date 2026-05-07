@@ -17,6 +17,7 @@ import { browserExtension } from "../extensions/browser/index.mjs";
 import { gitExtension } from "../extensions/git/index.mjs";
 import { figmaExtension } from "../extensions/figma/index.mjs";
 import { contentfulExtension } from "../extensions/contentful/index.mjs";
+import { agentsExtension } from "../extensions/agents/index.mjs";
 
 const config = await loadConfig();
 const extensions = loadExtensions([
@@ -28,13 +29,14 @@ const extensions = loadExtensions([
   browserExtension(),
   figmaExtension(),
   contentfulExtension(),
+  agentsExtension(),
 ]);
 
 const store = new JobStore(config);
 await store.load();
 
 const processes = new Processes();
-const runtime = new PiRuntime({ config, extensions, processes });
+const runtime = new PiRuntime({ config, extensions, processes, store });
 
 async function onJobComplete(job, output) {
   if (!job.issueKey) return;
@@ -46,6 +48,7 @@ async function onJobComplete(job, output) {
 }
 
 const runner = new JobRunner({ config, store, runtime, onComplete: onJobComplete });
+runtime.setRunner(runner);
 for (const job of store.list().filter((j) => j.status === "queued").reverse()) {
   runner.enqueue(job);
 }

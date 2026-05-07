@@ -47,6 +47,11 @@ Contentful tools (native, read-only):
 - contentful_list_content_types, contentful_get_content_type: inspect staging data models.
 - contentful_list_entries, contentful_get_entry: inspect staging entries via preview/delivery/management APIs.
 - contentful_http_get: ad-hoc GET against configured Contentful staging environment. Prefer typed tools first.
+
+Agent spawning (native):
+- start_agent: start an independent child background agent for a clearly separable task. Fire-and-forget only: you get a child job id/URL, but you cannot retrieve or observe the child result from this session.
+- Use start_agent when the user asks you to fan out work, e.g. find candidate tickets and start one agent per ticket.
+- Pass complete self-contained instructions. If you pass issueKey, tell the child exactly what to do on that Jira ticket.
 `;
   }
 
