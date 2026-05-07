@@ -15,6 +15,7 @@ import { piViewExtensionSource } from "./pi-view-extension.mjs";
 import { piFilesExtensionSource } from "./pi-files-extension.mjs";
 import { piContentfulExtensionSource } from "./pi-contentful-extension.mjs";
 import { piAgentsExtensionSource } from "./pi-agents-extension.mjs";
+import { piMicroVmExtensionSource } from "./pi-microvm-extension.mjs";
 import { RepoCache } from "../../extensions/github/repo-cache.mjs";
 import { trim } from "../core/redact.mjs";
 import { agentBranchName } from "../core/ids.mjs";
@@ -479,6 +480,9 @@ export class PiRuntime {
     // Agent spawning tool: fire-and-forget child jobs
     await vm.writeFile(`${extDir}/agents-tools.js`, piAgentsExtensionSource());
 
+    // Explicit Gondolin MicroVM tools for builds/tests/browser/node/npm/yarn
+    await vm.writeFile(`${extDir}/microvm-tools.js`, piMicroVmExtensionSource());
+
     // Build Jira env vars for the extension
     const jiraEnv = {};
     const jiraTokens = this._loadJiraTokens();
@@ -527,7 +531,7 @@ export class PiRuntime {
     }), bootTimeoutMs, `Pi session boot for ${job.id}`);
     const sessionId = created.sessionId;
     console.log("[pi:agentos] session:", sessionId, "model:", defaultProvider + "/" + defaultModel);
-    await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, thinkingLevel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_list_attachments", "jira_download_attachment", "jira_search", "jira_count", "jira_board_jql", "jira_board_count", "figma_get_file", "figma_find_nodes", "figma_get_node_subtree", "figma_inspect_node", "figma_export_assets", "view_image", "list_directory", "find_files", "figma_get_components", "figma_get_styles", "figma_get_comments", "figma_get_images", "figma_search", "contentful_api_help", "contentful_http_get", "contentful_list_content_types", "contentful_get_content_type", "contentful_list_entries", "contentful_get_entry", "start_jira_agent", "start_agent", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
+    await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, thinkingLevel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_list_attachments", "jira_download_attachment", "jira_search", "jira_count", "jira_board_jql", "jira_board_count", "figma_get_file", "figma_find_nodes", "figma_get_node_subtree", "figma_inspect_node", "figma_export_assets", "view_image", "list_directory", "find_files", "figma_get_components", "figma_get_styles", "figma_get_comments", "figma_get_images", "figma_search", "contentful_api_help", "contentful_http_get", "contentful_list_content_types", "contentful_get_content_type", "contentful_list_entries", "contentful_get_entry", "start_jira_agent", "start_agent", "vm_bash", "vm_read", "vm_write", "vm_edit", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
     releaseBootOnce();
 
     // Create live session first so the event handler can reference it

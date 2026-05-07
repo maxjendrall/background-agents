@@ -56,6 +56,18 @@ export async function loadConfig() {
       agentAutoContinueLimit: intZero("AGENT_AUTO_CONTINUE_LIMIT", 0),
       mode: process.env.RUNTIME || "agentos", // "agentos" or "direct"
     },
+    microvm: {
+      enabled: bool("MICROVM_ENABLED", false),
+      imagePath: rel(root, process.env.MICROVM_IMAGE_PATH || ".data/microvm/node-browser-image"),
+      snapshotPath: rel(root, process.env.MICROVM_SNAPSHOT_PATH || ".data/microvm/base-node-browser.qcow2"),
+      memory: process.env.MICROVM_MEMORY || "1536M",
+      cpus: int("MICROVM_CPUS", 2),
+      maxActive: int("MICROVM_MAX_ACTIVE", 2),
+      idleMs: int("MICROVM_IDLE_MS", 600_000),
+      startTimeoutMs: int("MICROVM_START_TIMEOUT_MS", 120_000),
+      allowedHosts: list(process.env.MICROVM_ALLOWED_HOSTS),
+      bootstrapCommand: process.env.MICROVM_BOOTSTRAP_COMMAND || "",
+    },
     workspace: {
       path: workspacePath,
       exists: Boolean(workspacePath && existsSync(workspacePath)),

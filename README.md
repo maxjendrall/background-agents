@@ -197,6 +197,16 @@ Files: `extensions/browser/*`
 
 - Browser fetch/screenshot tools for UI verification and page inspection.
 
+### `microvm`
+
+Files: `extensions/microvm/*`, `src/runtime/pi-microvm-extension.mjs`
+
+- Adds explicit Gondolin MicroVM tools: `vm_bash`, `vm_read`, `vm_write`, `vm_edit`.
+- Each job gets a lazy per-job Linux MicroVM with its workspace mounted at `/workspace`.
+- Use `vm_bash` for builds/tests and tooling that needs real Linux binaries: `node`, `npm`, `yarn`, `agent-browser`, Chromium, etc.
+- Git/Jira/GitHub/Figma/Contentful stay as host-native tools; MicroVMs are for isolated execution/validation, not secrets.
+- Build the dependency image with `npm run microvm:build-image -- --force`, then prepare the reusable base snapshot with `npm run microvm:prepare -- --force`; later job VMs resume from `MICROVM_SNAPSHOT_PATH`.
+
 ### `figma`
 
 Files: `extensions/figma/*`, `src/runtime/pi-figma-extension.mjs`
@@ -254,6 +264,8 @@ POST /api/jira/trigger
 POST /api/jira/webhook
 GET  /api/jira/search
 POST /api/jira/search
+GET  /api/microvm/status
+POST /api/microvm/prepare
 ```
 
 ## Important configuration
@@ -273,6 +285,13 @@ JIRA_TRIGGER_STATUSES=
 JIRA_TRIGGER_LABELS=
 
 CONTENTFUL_ENVIRONMENT=staging
+
+MICROVM_ENABLED=false
+MICROVM_IMAGE_PATH=.data/microvm/node-browser-image
+MICROVM_SNAPSHOT_PATH=.data/microvm/base-node-browser.qcow2
+MICROVM_MEMORY=1536M
+MICROVM_CPUS=2
+MICROVM_MAX_ACTIVE=2
 ```
 
 Operational notes:
@@ -281,6 +300,7 @@ Operational notes:
 - Jira agents are prompted to add one final `jira_add_comment` at the end of the turn. `AGENT_AUTO_CONTINUE_LIMIT` is disabled by default (`0`); set it above zero only if you explicitly want automatic recovery attempts for missing final comments.
 - Raise `MAX_CONCURRENCY` only if the server has enough memory/CPU and jobs are mostly I/O bound.
 - Add swap on small servers if many agents may build/test at the same time.
+- Enable MicroVMs with `MICROVM_ENABLED=true`, install QEMU on the host, run `npm run microvm:build-image -- --force` once to build the node/npm/yarn/Chromium image, then run `npm run microvm:prepare -- --force` to create the reusable snapshot.
 - Large historical event logs can be compacted with:
 
 ```bash

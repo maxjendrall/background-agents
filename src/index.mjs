@@ -19,6 +19,7 @@ import { figmaExtension } from "../extensions/figma/index.mjs";
 import { contentfulExtension } from "../extensions/contentful/index.mjs";
 import { agentsExtension } from "../extensions/agents/index.mjs";
 import { viewExtension } from "../extensions/view/index.mjs";
+import { microVmExtension } from "../extensions/microvm/index.mjs";
 
 const config = await loadConfig();
 const extensions = loadExtensions([
@@ -30,6 +31,7 @@ const extensions = loadExtensions([
   browserExtension(),
   figmaExtension(),
   viewExtension(),
+  microVmExtension(),
   contentfulExtension(),
   agentsExtension(),
 ]);
@@ -62,6 +64,15 @@ console.log(`[background-agents] ui  http://${config.server.host}:${config.serve
 console.log(`[background-agents] app http://${config.server.host}:${config.server.port}/app`);
 if (config.workspace.exists) console.log(`[background-agents] workspace ${config.workspace.path}`);
 
-function shutdown() { runtime.disposeAll(); processes.stopAll(); server.close(); process.exit(0); }
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  await Promise.all(extensions.map((ext) => ext.dispose?.()).filter(Boolean)).catch(() => {});
+  runtime.disposeAll();
+  processes.stopAll();
+  server.close();
+  process.exit(0);
+}
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

@@ -1,0 +1,34 @@
+{
+  "arch": "x86_64",
+  "distro": "alpine",
+  "alpine": {
+    "version": "3.23.0",
+    "kernelPackage": "linux-virt",
+    "kernelImage": "vmlinuz-virt",
+    "rootfsPackages": [
+      "linux-virt",
+      "rng-tools",
+      "bash",
+      "git",
+      "curl",
+      "ca-certificates",
+      "nodejs",
+      "npm",
+      "chromium",
+      "dbus",
+      "mesa-dri-gallium",
+      "font-noto",
+      "xvfb-run",
+      "gsettings-desktop-schemas",
+      "file",
+      "ripgrep",
+      "openssh"
+    ],
+    "initramfsPackages": [],
+    "krunfwVersion": "v5.2.1"
+  },
+  "rootfs": {
+    "label": "gondolin-root",
+    "sizeMb": 3072
+  }
+}

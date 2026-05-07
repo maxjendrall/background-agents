@@ -25,6 +25,12 @@ Filesystem tools (native):
 - list_directory: list one directory safely.
 - find_files: recursively find files safely, with maxDepth/limit/contains filters.
 
+MicroVM tools (native, Gondolin):
+- vm_bash: run builds/tests and tooling inside a per-job Linux MicroVM with /workspace mounted from the job workspace. Prefer this for node/npm/yarn/agent-browser commands.
+- vm_read, vm_write, vm_edit: file operations through the MicroVM view of /workspace.
+- Repo paths map from /home/user/workspace/repos/<repo> to /workspace/repos/<repo> inside the MicroVM.
+- Keep Git/Jira/GitHub operations on native host tools (git_commit, git_push, gh_pr_create, jira_add_comment); use the MicroVM for validation/tooling, not for secrets.
+
 Git tools (native, call directly):
 - git_status: show status (optionally specify path)
 - git_diff: show uncommitted changes
