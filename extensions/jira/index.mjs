@@ -100,7 +100,7 @@ async function buildPrompt(config, body, batchedEvents) {
     `- Focus on what just happened above. Do not re-summarize the whole ticket.`,
     `- If someone asked a question or gave feedback, respond to THAT specifically.`,
     `- This was triggered from Jira. Use the native jira_add_comment tool only at the end of this turn; do not use node /usr/local/bin/agentos-jira or any AgentOS Jira CLI shim.`,
-    `- Do not add progress/acknowledgement comments while you are still working. Add exactly one end-of-turn Jira comment unless the latest event is your own previous AI comment with no new external feedback.`,
+    `- Do not add progress/plan/acknowledgement comments while you are still working, even if the triggering prompt asks for an interim update. Add exactly one end-of-turn Jira comment unless the latest event is your own previous AI comment with no new external feedback.`,
     `- If the latest event is your own previous comment/status update and contains no new external feedback, reviewer comment, CI result, or requested change, do not comment again; summarize briefly and stop.`,
     `- If blocked/unclear, make the end-of-turn comment explain the blocker and exactly what you need, then stop.`,
     `- If you change code, use native git_commit, git_push, and gh_pr_create/gh_pr_comment as appropriate before the end-of-turn Jira comment.`,

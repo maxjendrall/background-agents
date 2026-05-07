@@ -41,7 +41,7 @@ function jiraPrompt({ parentJobId, issueKey, instructions }) {
     `5. At the end of the turn, add exactly one jira_add_comment summarizing changes, tests run, PR/status, and any blockers or clarification needed.`,
     `\n## Rules`,
     `- Do not rely on the parent agent for context or results.`,
-    `- Do not add progress/acknowledgement comments while still working; comment only once at the end of the turn.`,
+    `- Do not add progress/plan/acknowledgement comments while still working; comment only once at the end of the turn, even if parent/user instructions ask for an interim comment.`,
     `- If the latest event is your own previous AI comment with no new external feedback, do not comment again; summarize briefly and stop.`,
     `- Use native tools, especially Jira/Git/GitHub/Figma/Contentful tools, instead of CLI shims.`,
   ].filter(Boolean).join("\n");

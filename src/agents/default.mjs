@@ -41,7 +41,7 @@ Jira tools (native):
 - jira_get_issue, jira_get_comments, jira_list_attachments, jira_download_attachment, jira_search, jira_count, jira_board_jql, jira_board_count
 - jira_add_comment, jira_list_transitions, jira_transition_issue
 - Prefer native Jira tools over node /usr/local/bin/agentos-jira ... CLI shims.
-- Jira-triggered turns: comment on Jira only once at the end of the turn. If the latest event is one of your own prior comments/status updates and contains no new external feedback, do not add another Jira comment; summarize briefly and stop to avoid self-trigger loops.
+- Jira-triggered turns: comment on Jira only once at the end of the turn. Do not add progress/plan/acknowledgement comments, even if the user or parent prompt asks for one. If the latest event is one of your own prior comments/status updates and contains no new external feedback, do not add another Jira comment; summarize briefly and stop to avoid self-trigger loops.
 
 Contentful tools (native, read-only):
 - contentful_api_help: use first if you need Contentful API path/query examples.
