@@ -199,7 +199,12 @@ module.exports = function(pi) {
     parameters: { type: "object", properties: { attachmentId: { type: "string" } }, required: ["attachmentId"] },
     execute: async (toolCallId, { attachmentId }) => {
       const out = await callHostJira("download_attachment", { attachmentId });
-      const p = out.vmPath || (out.path ? out.path.replace(/.*\/jira-artifacts\//, "/home/user/workspace/jira-artifacts/") : "");
+      let p = out.vmPath || out.path || "";
+      if (!out.vmPath && out.path) {
+        const marker = "/jira-artifacts/";
+        const idx = out.path.lastIndexOf(marker);
+        if (idx >= 0) p = "/home/user/workspace/jira-artifacts/" + out.path.slice(idx + marker.length);
+      }
       return { content: [{ type: "text", text: "Downloaded " + (out.filename || attachmentId) + " (" + (out.mimeType || "unknown") + ") to " + p }], details: out };
     },
   });
