@@ -244,7 +244,12 @@ export function jiraExtension() {
         const statusMatch = statusInfo.matched;
         const labelInfo = labelTriggerInfo(config, body);
         const labelMatch = labelInfo.matched;
-        if (!mentioned && !statusMatch && !labelMatch) {
+        const matched = mentioned || statusMatch || labelMatch;
+        console.log(`[jira] webhook received for ${key}: event=${body.webhookEvent || "unknown"}, commentChars=${text.length}, mentioned=${mentioned}, statusMatch=${statusMatch}, labelMatch=${labelMatch}`);
+        if (c.req.query("dryRun") === "1" || c.req.header("x-webhook-test") === "1") {
+          return c.json({ dryRun: true, issueKey: key, matched, mentioned, statusMatch, labelMatch, triggerMention: config.jira.triggerMention, commentChars: text.length }, 200);
+        }
+        if (!matched) {
           console.log(`[jira] webhook ignored for ${key}: no match (comment chars: ${text.length})`);
           return c.json({ ignored: true, reason: "no match", issueKey: key }, 202);
         }
