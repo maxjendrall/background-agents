@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { id } from "../core/ids.mjs";
 import { redactData } from "../core/redact.mjs";
+import { compactEvents, compactEventsAfter } from "../core/events.mjs";
 
 function now() { return new Date().toISOString(); }
 
@@ -97,10 +98,13 @@ export class JobStore {
     job.updatedAt = now();
   }
 
-  async events(jobId) {
+  async events(jobId, opts = {}) {
     const p = resolve(this.config.paths.jobs, jobId, "events.jsonl");
     if (!existsSync(p)) return [];
-    return (await readFile(p, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const raw = (await readFile(p, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    if (opts.raw) return raw;
+    if (opts.afterId) return compactEventsAfter(raw, opts.afterId);
+    return compactEvents(raw);
   }
 
   async clearEvents(jobId) {

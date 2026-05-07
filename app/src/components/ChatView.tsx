@@ -199,25 +199,27 @@ export function ChatView({ jobId, health }: ChatViewProps) {
         const r = await api.job(jobId, true);
         if (cancelled) return;
         setJob(r.job);
-        setEvents(r.job.events || []);
+        const initialEvents = r.job.events || [];
+        setEvents(initialEvents);
+        const afterId = initialEvents[initialEvents.length - 1]?.id;
+        if (cancelled) return;
+        close = streamEvents(jobId, (e) => {
+          if (pendingIds.has(e.id)) return;
+          pendingIds.add(e.id);
+          pending.push(e);
+          // Job-status transitions affect the header — don't batch those.
+          if (e.type === "job.completed" || e.type === "job.failed" || e.type === "job.cancelled") {
+            api.job(jobId).then((r) => setJob(r.job)).catch(() => {});
+          }
+          if (e.type === "job.updated" && e.data) {
+            // The /api/jobs/:id/events SSE includes job.updated with the full pub() payload.
+            setJob((j) => (j ? { ...j, ...(e.data as any) } : j));
+          }
+          schedule();
+        }, undefined, { afterId });
       } catch (e) {
         console.error(e);
       }
-      if (cancelled) return;
-      close = streamEvents(jobId, (e) => {
-        if (pendingIds.has(e.id)) return;
-        pendingIds.add(e.id);
-        pending.push(e);
-        // Job-status transitions affect the header — don't batch those.
-        if (e.type === "job.completed" || e.type === "job.failed" || e.type === "job.cancelled") {
-          api.job(jobId).then((r) => setJob(r.job)).catch(() => {});
-        }
-        if (e.type === "job.updated" && e.data) {
-          // The /api/jobs/:id/events SSE includes job.updated with the full pub() payload.
-          setJob((j) => (j ? { ...j, ...(e.data as any) } : j));
-        }
-        schedule();
-      });
     })();
     return () => {
       cancelled = true;

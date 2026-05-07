@@ -8,6 +8,7 @@
     "dev": "node --watch --env-file-if-exists=.env src/index.mjs",
     "check": "node scripts/check.mjs",
     "jira:jql": "node --env-file-if-exists=.env scripts/jira-jql.mjs",
+    "events:compact": "node --env-file-if-exists=.env scripts/compact-events.mjs",
     "postinstall": "node scripts/patch-agentos.mjs"
   },
   "dependencies": {

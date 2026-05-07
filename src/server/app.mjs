@@ -143,7 +143,8 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
   app.get("/api/jobs/:id/events", async (c) => {
     const job = store.get(c.req.param("id"));
     if (!job) return c.json({ error: "Not found" }, 404);
-    const initial = await store.events(job.id);
+    const afterId = c.req.query("after") || c.req.query("afterId") || "";
+    const initial = await store.events(job.id, afterId ? { afterId } : {});
     return streamSSE(c, async (stream) => {
       for (const evt of initial) await stream.writeSSE({ data: JSON.stringify(evt), event: evt.type, id: evt.id });
       const unsub = store.subscribe(job.id, (evt) => { void stream.writeSSE({ data: JSON.stringify(evt), event: evt.type, id: evt.id }); });

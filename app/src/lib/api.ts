@@ -56,9 +56,14 @@ export function streamEvents(
   jobId: string,
   onEvent: (e: AgentEvent) => void,
   onError?: (e: Event) => void,
+  opts: { afterId?: string } = {},
 ): () => void {
   const t = getToken();
-  const url = `/api/jobs/${jobId}/events${t ? `?token=${encodeURIComponent(t)}` : ""}`;
+  const params = new URLSearchParams();
+  if (t) params.set("token", t);
+  if (opts.afterId) params.set("after", opts.afterId);
+  const qs = params.toString();
+  const url = `/api/jobs/${jobId}/events${qs ? `?${qs}` : ""}`;
   const es = new EventSource(url);
   const handler = (msg: MessageEvent) => {
     try {

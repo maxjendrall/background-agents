@@ -1,4 +1,5 @@
-import { errMsg, trim } from "../core/redact.mjs";
+import { errMsg } from "../core/redact.mjs";
+import { JobEventSink } from "./event-sink.mjs";
 
 function now() { return new Date().toISOString(); }
 
@@ -48,16 +49,15 @@ export class JobRunner {
     await this.store.update(job.id, { status: "running", startedAt: now(), completedAt: null, error: null });
     await this.store.event(job.id, "job.started", { model: job.model, thinkingLevel: job.thinkingLevel });
 
-    const result = await this.runtime.run(job, {
-      onEvent: async (type, data) => {
-        if (type === "agent.text") {
-          await this.store.appendText(job.id, data.text);
-          await this.store.event(job.id, type, data);
-        } else {
-          await this.store.event(job.id, type, data);
-        }
-      },
-    });
+    const events = new JobEventSink({ store: this.store, jobId: job.id });
+    let result;
+    try {
+      result = await this.runtime.run(job, {
+        onEvent: (type, data) => events.event(type, data),
+      });
+    } finally {
+      await events.flush();
+    }
 
     const output = result.text || this.store.get(job.id)?.output || "";
     await this.store.update(job.id, {
