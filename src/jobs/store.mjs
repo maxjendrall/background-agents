@@ -27,6 +27,7 @@ export class JobStore {
         job.startedAt = null;
         job.completedAt = null;
         job.error = null;
+        if ((job.result || job.output) && !job.resumeStrategy) job.resumeStrategy = "context";
         job.updatedAt = now();
         this.jobs.set(job.id, job);
         await this.#write(job);

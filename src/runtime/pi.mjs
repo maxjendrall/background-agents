@@ -139,6 +139,12 @@ export class PiRuntime {
   async run(job, { onEvent }) {
     // Live session exists → reuse it (same Pi conversation history)
     if (this.sessions.has(job.id)) return this._followUp(job, onEvent);
+    // Completed/interrupted jobs followed up after a restart can hang when
+    // AgentOS tries to resurrect an older Pi JSONL session. For those, prefer
+    // context injection into a fresh AgentOS session when requested by the job.
+    if (job.resumeStrategy === "context") {
+      return this._resumeWithContext(job, onEvent, { freshAgentOsSession: true });
+    }
     // No live session but has a persisted Pi session file/dir → resume from disk.
     if (job.piSessionFile && existsSync(job.piSessionFile)) {
       console.log("[pi] resuming from persisted session:", job.piSessionFile);
@@ -186,18 +192,26 @@ export class PiRuntime {
     return this._resumeWithContext(job, onEvent);
   }
 
-  async _resumeWithContext(job, onEvent) {
+  async _resumeWithContext(job, onEvent, opts = {}) {
     // Inject previous conversation output as context prefix for the new session
     const prevOutput = job.output || job.result || "";
     const contextPrefix = prevOutput
       ? `[CONTEXT] You are continuing a previous session. The workspace has been refreshed with your repos. Your previous changes in git worktrees are preserved.\n\nPrevious conversation:\n${trim(prevOutput, 15_000)}\n\n[NEW MESSAGE] `
       : "";
     const originalPrompt = job.prompt;
+    const originalSessionDir = job.piSessionDir;
     job.prompt = contextPrefix + job.prompt;
+    if (opts.freshAgentOsSession && this.mode === "agentos") {
+      job.piSessionDir = resolve(job.workspacePath, `.pi-sessions-context-${Date.now()}`);
+    }
     let result;
-    if (this.mode === "direct") result = await this._startDirect(job, onEvent);
-    else result = await this._startAgentOs(job, onEvent);
-    job.prompt = originalPrompt;
+    try {
+      if (this.mode === "direct") result = await this._startDirect(job, onEvent);
+      else result = await this._startAgentOs(job, onEvent);
+    } finally {
+      job.prompt = originalPrompt;
+      if (!opts.freshAgentOsSession) job.piSessionDir = originalSessionDir;
+    }
     return result;
   }
 

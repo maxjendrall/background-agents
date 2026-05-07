@@ -181,9 +181,11 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
     if (body.model) patch.model = body.model;
     if (body.thinkingLevel || body.thinking) patch.thinkingLevel = body.thinkingLevel || body.thinking;
     if (body.messageMode || body.mode) patch.messageMode = body.messageMode || body.mode;
+    if (body.resumeStrategy) patch.resumeStrategy = body.resumeStrategy;
+    else if (job.result || job.output) patch.resumeStrategy = "context";
     // Update the job with the new prompt/config and re-enqueue
     await store.update(job.id, patch);
-    await store.event(job.id, "follow_up.queued", { prompt: prompt.slice(0, 50_000), model: patch.model || job.model, thinkingLevel: patch.thinkingLevel || job.thinkingLevel, messageMode: patch.messageMode || job.messageMode || "follow_up" });
+    await store.event(job.id, "follow_up.queued", { prompt: prompt.slice(0, 50_000), model: patch.model || job.model, thinkingLevel: patch.thinkingLevel || job.thinkingLevel, messageMode: patch.messageMode || job.messageMode || "follow_up", resumeStrategy: patch.resumeStrategy || job.resumeStrategy || "persisted" });
     runner.enqueue(store.get(job.id));
     return c.json({ job: store.pub(store.get(job.id)) }, 202);
   });
