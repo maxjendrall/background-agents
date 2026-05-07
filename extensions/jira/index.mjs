@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { JiraClient } from "./client.mjs";
 import { trim } from "../../src/core/redact.mjs";
 import { formatIssue, formatComments } from "./format.mjs";
+import { adfToMarkdown } from "../../src/core/adf.mjs";
 
 function issueKey(body) {
   return body?.issueKey || body?.issue_key || body?.key || body?.issue?.key || "";
@@ -14,6 +15,7 @@ function commentText(body) {
   if (!c) return "";
   if (typeof c === "string") return c;
   if (typeof c.body === "string") return c.body;
+  if (c.body && typeof c.body === "object") return adfToMarkdown(c.body);
   return "";
 }
 
@@ -231,15 +233,21 @@ export function jiraExtension() {
       app.post("/api/jira/webhook", async (c) => {
         const body = await c.req.json();
         const key = issueKey(body);
-        if (!key) return c.json({ ignored: true, reason: "no issue key" }, 202);
+        if (!key) {
+          console.log("[jira] webhook ignored: no issue key");
+          return c.json({ ignored: true, reason: "no issue key" }, 202);
+        }
 
         const text = commentText(body);
-        const mentioned = text.includes(config.jira.triggerMention);
+        const mentioned = config.jira.triggerMention ? text.toLowerCase().includes(config.jira.triggerMention.toLowerCase()) : false;
         const statusInfo = statusTriggerInfo(config, body);
         const statusMatch = statusInfo.matched;
         const labelInfo = labelTriggerInfo(config, body);
         const labelMatch = labelInfo.matched;
-        if (!mentioned && !statusMatch && !labelMatch) return c.json({ ignored: true, reason: "no match" }, 202);
+        if (!mentioned && !statusMatch && !labelMatch) {
+          console.log(`[jira] webhook ignored for ${key}: no match (comment chars: ${text.length})`);
+          return c.json({ ignored: true, reason: "no match", issueKey: key }, 202);
+        }
         if (statusMatch) body._triggerReason = `Triggered because Jira status transitioned to: ${statusInfo.statuses.join(", ")}.`;
         if (labelMatch) body._triggerReason = `Triggered because Jira label matched: ${labelInfo.labels.join(", ")}.`;
 

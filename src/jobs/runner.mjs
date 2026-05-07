@@ -165,10 +165,11 @@ export class JobRunner {
     const output = result.text || this.store.get(job.id)?.output || "";
     const rawEvents = await this.store.events(job.id, { raw: true });
     const runEvents = latestRunEvents(rawEvents);
-    if (shouldRequireJiraCompletion(job) && !toolCompleted(runEvents, "jira_add_comment")) {
+    const autoContinueMax = this.config.runtime.agentAutoContinueLimit ?? 0;
+    if (autoContinueMax > 0 && shouldRequireJiraCompletion(job) && !toolCompleted(runEvents, "jira_add_comment")) {
       const current = this.store.get(job.id);
       const attempts = (current?.autoContinueCount || 0) + 1;
-      const max = this.config.runtime.agentAutoContinueLimit || 5;
+      const max = autoContinueMax;
       if (attempts <= max) {
         // A common failure mode is AgentOS accepting a follow-up on an already
         // wedged session and then returning immediately with no tool/text

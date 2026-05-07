@@ -42,6 +42,14 @@ if (acpSrc?.includes("120_000") && !acpSrc.includes("600_000")) {
 const hostToolsPromptFile = resolve(process.cwd(), "node_modules/@rivet-dev/agent-os-core/dist/host-tools-prompt.js");
 let hostToolsPromptSrc;
 try { hostToolsPromptSrc = readFileSync(hostToolsPromptFile, "utf8"); } catch {}
+if (hostToolsPromptSrc && !hostToolsPromptSrc.includes('export function generateToolReference(toolKits) {\n    return "";')) {
+  hostToolsPromptSrc = hostToolsPromptSrc.replace(
+    /export function generateToolReference\(toolKits\) \{[\s\S]*?\n\}\n\/\*\*/,
+    'export function generateToolReference(toolKits) {\n    return "";\n}\n/**',
+  );
+  writeFileSync(hostToolsPromptFile, hostToolsPromptSrc);
+  console.log("[patch] disabled AgentOS host tool CLI prompt");
+}
 const originalHostToolLine = 'lines.push(`- \\`node /usr/local/bin/agentos-${tk.name} ${toolName}${flagStr}\\` — ${tool.description}`);';
 if (hostToolsPromptSrc?.includes(originalHostToolLine)) {
   hostToolsPromptSrc = hostToolsPromptSrc

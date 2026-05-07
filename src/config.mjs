@@ -13,6 +13,11 @@ function int(name, fallback) {
   return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
+function intZero(name, fallback) {
+  const v = Number.parseInt(process.env[name] || "", 10);
+  return Number.isFinite(v) && v >= 0 ? v : fallback;
+}
+
 function list(value) {
   return (value || "").split(",").map((s) => s.trim()).filter(Boolean);
 }
@@ -48,7 +53,7 @@ export async function loadConfig() {
       agentBootConcurrency: int("AGENT_BOOT_CONCURRENCY", 10),
       agentBootTimeoutMs: int("AGENT_BOOT_TIMEOUT_MS", 45_000),
       agentBootRetries: int("AGENT_BOOT_RETRIES", 3),
-      agentAutoContinueLimit: int("AGENT_AUTO_CONTINUE_LIMIT", 5),
+      agentAutoContinueLimit: intZero("AGENT_AUTO_CONTINUE_LIMIT", 0),
       mode: process.env.RUNTIME || "agentos", // "agentos" or "direct"
     },
     workspace: {

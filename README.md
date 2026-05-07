@@ -264,7 +264,7 @@ MAX_CONCURRENCY=10
 AGENT_BOOT_CONCURRENCY=10
 AGENT_BOOT_TIMEOUT_MS=45000
 AGENT_BOOT_RETRIES=3
-AGENT_AUTO_CONTINUE_LIMIT=5
+AGENT_AUTO_CONTINUE_LIMIT=0
 AGENT_SPAWN_LIMIT=25
 
 JIRA_TRIGGER_MENTION=@agent
@@ -277,7 +277,7 @@ CONTENTFUL_ENVIRONMENT=staging
 Operational notes:
 
 - `AGENT_BOOT_TIMEOUT_MS` and `AGENT_BOOT_RETRIES` prevent AgentOS startup from holding queue slots forever; stalled boots are disposed/requeued automatically.
-- Jira jobs that end without a final `jira_add_comment` are automatically continued up to `AGENT_AUTO_CONTINUE_LIMIT` times so a turn cannot silently stop mid-investigation.
+- Jira agents are prompted to add one final `jira_add_comment` at the end of the turn. `AGENT_AUTO_CONTINUE_LIMIT` is disabled by default (`0`); set it above zero only if you explicitly want automatic recovery attempts for missing final comments.
 - Raise `MAX_CONCURRENCY` only if the server has enough memory/CPU and jobs are mostly I/O bound.
 - Add swap on small servers if many agents may build/test at the same time.
 - Large historical event logs can be compacted with:
