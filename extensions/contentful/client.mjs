@@ -76,11 +76,30 @@ function normalizeQuery(query = {}) {
   return out;
 }
 
+function safeRelativePath(input) {
+  if (!input || typeof input !== "string") return "/";
+  if (/^https?:\/\//i.test(input)) throw new Error("Contentful path must be relative, not a full URL");
+  if (input.includes("?") || input.includes("#")) throw new Error("Put query params in the query object, not in path");
+  const raw = input.startsWith("/") ? input : `/${input}`;
+  const segments = raw.split("/").filter(Boolean);
+  const safe = [];
+  for (const segment of segments) {
+    let decoded = segment;
+    try { decoded = decodeURIComponent(segment); } catch {}
+    if (!decoded || decoded === "." || decoded === "..") throw new Error("Contentful path must not contain dot segments");
+    if (["spaces", "environments"].includes(decoded.toLowerCase())) throw new Error("Contentful path is scoped automatically; do not include spaces/environments segments");
+    safe.push(encodeURIComponent(decoded));
+  }
+  return `/${safe.join("/")}`;
+}
+
 export class ContentfulClient {
   constructor(config, opts = {}) {
     this.config = config;
     this.spaceId = config.contentful?.spaceId || "";
-    this.environment = config.contentful?.environment || "staging";
+    const env = config.contentful?.environment || "staging";
+    if (env !== "staging") throw new Error("Contentful tools are restricted to the staging environment");
+    this.environment = "staging";
     this.tokens = {
       management: config.contentful?.managementToken || "",
       delivery: config.contentful?.deliveryToken || "",
@@ -90,7 +109,7 @@ export class ContentfulClient {
     this.vmArtifactsDir = opts.vmArtifactsDir || "/home/user/workspace/contentful-artifacts";
   }
 
-  token(api = "management") { return this.tokens[api] || this.tokens.management || ""; }
+  token(api = "management") { return this.tokens[api] || ""; }
   configured(api = "management") { return Boolean(this.spaceId && this.token(api)); }
 
   apiBase(api = "management") {
@@ -102,7 +121,8 @@ export class ContentfulClient {
   async request(api = "management", path = "/", query = {}) {
     const token = this.token(api);
     if (!token) throw new Error(`Contentful ${api} token is not configured`);
-    const url = new URL(this.apiBase(api) + (path.startsWith("/") ? path : `/${path}`));
+    const safePath = safeRelativePath(path);
+    const url = new URL(this.apiBase(api) + safePath);
     for (const [key, value] of Object.entries(normalizeQuery(query))) url.searchParams.set(key, value);
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
     const text = await res.text();
@@ -147,7 +167,7 @@ export class ContentfulClient {
     return contentTypeSummary(data);
   }
 
-  async listEntries({ api = "preview", contentType, limit = 20, skip = 0, include = 1, select, query = {} } = {}) {
+  async listEntries({ api = "management", contentType, limit = 20, skip = 0, include = 1, select, query = {} } = {}) {
     const q = { limit, skip, include, ...query };
     if (contentType) q.content_type = contentType;
     if (select) q.select = select;
@@ -164,7 +184,7 @@ export class ContentfulClient {
     };
   }
 
-  async getEntry({ api = "preview", entryId, include = 2, save = false } = {}) {
+  async getEntry({ api = "management", entryId, include = 2, save = false } = {}) {
     if (!entryId) throw new Error("entryId required");
     const data = await this.request(api, `/entries/${encodeURIComponent(entryId)}`, { include });
     const artifact = save ? await this.saveArtifact(`entry-${entryId}.json`, data) : null;

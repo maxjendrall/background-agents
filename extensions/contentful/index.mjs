@@ -38,15 +38,15 @@ export function contentfulExtension() {
             execute: ({ contentTypeId }) => contentful.getContentType(contentTypeId),
           }),
           list_entries: hostTool({
-            description: "List Contentful entries from preview/delivery/management APIs. Defaults to preview/staging for draft-capable inspection.",
+            description: "List Contentful entries from management/preview/delivery APIs. Defaults to management on staging for draft-capable inspection.",
             timeout: CONTENTFUL_TIMEOUT,
-            inputSchema: z.object({ api: Api.default("preview"), contentType: z.string().optional(), limit: z.number().default(20), skip: z.number().default(0), include: z.number().default(1), select: z.string().optional(), query: JsonQuery }),
+            inputSchema: z.object({ api: Api.default("management"), contentType: z.string().optional(), limit: z.number().default(20), skip: z.number().default(0), include: z.number().default(1), select: z.string().optional(), query: JsonQuery }),
             execute: (input) => contentful.listEntries(input),
           }),
           get_entry: hostTool({
             description: "Get a single Contentful entry by id from preview/delivery/management APIs. Optionally saves full JSON to contentful-artifacts.",
             timeout: CONTENTFUL_TIMEOUT,
-            inputSchema: z.object({ api: Api.default("preview"), entryId: z.string().min(1), include: z.number().default(2), save: z.boolean().default(false) }),
+            inputSchema: z.object({ api: Api.default("management"), entryId: z.string().min(1), include: z.number().default(2), save: z.boolean().default(false) }),
             execute: (input) => contentful.getEntry(input),
           }),
         },
