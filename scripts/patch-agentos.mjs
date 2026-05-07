@@ -6,26 +6,30 @@ import { resolve } from "node:path";
 
 const file = resolve(process.cwd(), "node_modules/@rivet-dev/agent-os-posix/dist/wasi-polyfill.js");
 let src;
-try { src = readFileSync(file, "utf8"); } catch { console.log("[patch] wasi-polyfill.js not found, skipping"); process.exit(0); }
+try { src = readFileSync(file, "utf8"); } catch { console.log("[patch] wasi-polyfill.js not found, skipping"); }
 
 const before = `BigInt(node.atime) * 1000000n`;
 const after = `BigInt(Math.trunc(node.atime || 0)) * 1000000n`;
 
-if (!src.includes(before)) { console.log("[patch] already patched or source changed"); process.exit(0); }
+if (src) {
+  if (!src.includes(before)) {
+    console.log("[patch] wasi-polyfill.js already patched or source changed");
+  } else {
+    src = src
+      .replace(`BigInt(node.atime) * 1000000n`, `BigInt(Math.trunc(node.atime || 0)) * 1000000n`)
+      .replace(`BigInt(node.mtime) * 1000000n`, `BigInt(Math.trunc(node.mtime || 0)) * 1000000n`)
+      .replace(`BigInt(node.ctime) * 1000000n`, `BigInt(Math.trunc(node.ctime || 0)) * 1000000n`);
 
-src = src
-  .replace(`BigInt(node.atime) * 1000000n`, `BigInt(Math.trunc(node.atime || 0)) * 1000000n`)
-  .replace(`BigInt(node.mtime) * 1000000n`, `BigInt(Math.trunc(node.mtime || 0)) * 1000000n`)
-  .replace(`BigInt(node.ctime) * 1000000n`, `BigInt(Math.trunc(node.ctime || 0)) * 1000000n`);
-
-writeFileSync(file, src);
-console.log("[patch] patched wasi-polyfill.js BigInt timestamp bug");
+    writeFileSync(file, src);
+    console.log("[patch] patched wasi-polyfill.js BigInt timestamp bug");
+  }
+}
 
 // Patch ACP client timeout from 120s to 600s
 const acpFile = resolve(process.cwd(), "node_modules/@rivet-dev/agent-os-core/dist/acp-client.js");
 let acpSrc;
-try { acpSrc = readFileSync(acpFile, "utf8"); } catch { process.exit(0); }
-if (acpSrc.includes("120_000") && !acpSrc.includes("600_000")) {
+try { acpSrc = readFileSync(acpFile, "utf8"); } catch {}
+if (acpSrc?.includes("120_000") && !acpSrc.includes("600_000")) {
   acpSrc = acpSrc.replace("const DEFAULT_TIMEOUT_MS = 120_000;", "const DEFAULT_TIMEOUT_MS = 600_000;");
   writeFileSync(acpFile, acpSrc);
   console.log("[patch] increased ACP timeout to 600s");
@@ -37,9 +41,9 @@ if (acpSrc.includes("120_000") && !acpSrc.includes("600_000")) {
 // and avoid teaching agents to call the shims.
 const hostToolsPromptFile = resolve(process.cwd(), "node_modules/@rivet-dev/agent-os-core/dist/host-tools-prompt.js");
 let hostToolsPromptSrc;
-try { hostToolsPromptSrc = readFileSync(hostToolsPromptFile, "utf8"); } catch { process.exit(0); }
+try { hostToolsPromptSrc = readFileSync(hostToolsPromptFile, "utf8"); } catch {}
 const originalHostToolLine = 'lines.push(`- \\`node /usr/local/bin/agentos-${tk.name} ${toolName}${flagStr}\\` — ${tool.description}`);';
-if (hostToolsPromptSrc.includes(originalHostToolLine)) {
+if (hostToolsPromptSrc?.includes(originalHostToolLine)) {
   hostToolsPromptSrc = hostToolsPromptSrc
     .replace('lines.push("Run `node /usr/local/bin/agentos list-tools` to see all available tools.");', 'lines.push("Prefer native Pi tools when available. Avoid `node /usr/local/bin/agentos-*` CLI shims inside AgentOS unless explicitly instructed; Node-based shims can be unreliable in some sandboxes.");')
     .replace(originalHostToolLine, 'lines.push(`- Host tool ${tk.name}.${toolName}${flagStr} — ${tool.description}`);')

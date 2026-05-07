@@ -21,7 +21,18 @@ export class JobStore {
       const p = resolve(dir, entry.name, "job.json");
       if (!existsSync(p)) continue;
       const job = JSON.parse(await readFile(p, "utf8"));
-      if (job.status === "running" || job.status === "queued") { job.status = "interrupted"; job.completedAt = now(); }
+      if (job.status === "running" || job.status === "queued") {
+        const previousStatus = job.status;
+        job.status = "queued";
+        job.startedAt = null;
+        job.completedAt = null;
+        job.error = null;
+        job.updatedAt = now();
+        this.jobs.set(job.id, job);
+        await this.#write(job);
+        await this.event(job.id, "job.recovered", { from: previousStatus, reason: "server_startup" });
+        continue;
+      }
       this.jobs.set(job.id, job);
       await this.#write(job);
     }

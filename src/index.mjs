@@ -44,6 +44,9 @@ async function onJobComplete(job, output) {
 }
 
 const runner = new JobRunner({ config, store, runtime, onComplete: onJobComplete });
+for (const job of store.list().filter((j) => j.status === "queued").reverse()) {
+  runner.enqueue(job);
+}
 const app = createApp({ config, store, runner, runtime, extensions });
 
 const server = serve({ fetch: app.fetch, hostname: config.server.host, port: config.server.port });

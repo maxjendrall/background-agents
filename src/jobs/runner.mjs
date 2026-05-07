@@ -45,7 +45,7 @@ export class JobRunner {
   }
 
   async #run(job) {
-    await this.store.update(job.id, { status: "running", startedAt: now() });
+    await this.store.update(job.id, { status: "running", startedAt: now(), completedAt: null, error: null });
     await this.store.event(job.id, "job.started", { model: job.model, thinkingLevel: job.thinkingLevel });
 
     const result = await this.runtime.run(job, {
