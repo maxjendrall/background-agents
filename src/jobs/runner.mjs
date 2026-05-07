@@ -46,7 +46,7 @@ export class JobRunner {
 
   async #run(job) {
     await this.store.update(job.id, { status: "running", startedAt: now() });
-    await this.store.event(job.id, "job.started", { model: job.model });
+    await this.store.event(job.id, "job.started", { model: job.model, thinkingLevel: job.thinkingLevel });
 
     const result = await this.runtime.run(job, {
       onEvent: async (type, data) => {
@@ -65,6 +65,9 @@ export class JobRunner {
       result: output,
       completedAt: now(),
       ...(job.piSessionFile ? { piSessionFile: job.piSessionFile } : {}),
+      ...(job.piSessionDir ? { piSessionDir: job.piSessionDir } : {}),
+      ...(job.figmaArtifactsDir ? { figmaArtifactsDir: job.figmaArtifactsDir } : {}),
+      ...(job.jiraArtifactsDir ? { jiraArtifactsDir: job.jiraArtifactsDir } : {}),
     });
     await this.store.event(job.id, "job.completed", { length: output.length });
 

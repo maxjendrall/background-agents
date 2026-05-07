@@ -1,10 +1,25 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { registerRoutes, extensionList } from "../core/extension.mjs";
 import { auth } from "./auth.mjs";
+
+function persistEnv(root, updates) {
+  const path = resolve(root, ".env");
+  let lines = [];
+  try { lines = readFileSync(path, "utf8").split("\n"); } catch {}
+  const seen = new Set();
+  lines = lines.map((line) => {
+    const key = Object.keys(updates).find((k) => line.startsWith(k + "="));
+    if (!key) return line;
+    seen.add(key);
+    return `${key}=${updates[key]}`;
+  });
+  for (const [key, value] of Object.entries(updates)) if (!seen.has(key)) lines.push(`${key}=${value}`);
+  writeFileSync(path, lines.join("\n").replace(/\n*$/, "\n"));
+}
 
 export function createApp({ config, store, runner, runtime, extensions }) {
   const app = new Hono();
@@ -42,12 +57,48 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
   app.get("/ui/app.js", (c) => { c.header("content-type", "application/javascript"); return c.body(readFileSync(resolve(uiDir, "app.js"), "utf8")); });
   app.get("/ui/style.css", (c) => { c.header("content-type", "text/css"); return c.body(readFileSync(resolve(uiDir, "style.css"), "utf8")); });
 
+
+  // --- New /app (Vite-built React + AI Elements) ---
+  const appDir = resolve(config.root, "app", "dist");
+  const serveAppFile = (relPath, mime) => (c) => {
+    try {
+      const body = readFileSync(resolve(appDir, relPath));
+      if (mime) c.header("content-type", mime);
+      return c.body(body);
+    } catch {
+      return c.json({ error: "Not found" }, 404);
+    }
+  };
+  app.get("/app", (c) => {
+    try { return c.html(readFileSync(resolve(appDir, "index.html"), "utf8")); }
+    catch { return c.html("<h1>App not built</h1><p>Run <code>npm run build</code> in <code>app/</code>.</p>", 503); }
+  });
+  app.get("/app/", (c) => c.redirect("/app"));
+  app.get("/app/assets/:file", (c) => {
+    const file = c.req.param("file");
+    if (!/^[A-Za-z0-9._-]+$/.test(file)) return c.json({ error: "Bad path" }, 400);
+    const mime = file.endsWith(".js") ? "application/javascript"
+      : file.endsWith(".css") ? "text/css"
+      : file.endsWith(".svg") ? "image/svg+xml"
+      : file.endsWith(".woff2") ? "font/woff2"
+      : file.endsWith(".woff") ? "font/woff"
+      : file.endsWith(".png") ? "image/png"
+      : file.endsWith(".jpg") || file.endsWith(".jpeg") ? "image/jpeg"
+      : "application/octet-stream";
+    return serveAppFile(`assets/${file}`, mime)(c);
+  });
+  app.get("/app/*", (c) => {
+    try { return c.html(readFileSync(resolve(appDir, "index.html"), "utf8")); }
+    catch { return c.json({ error: "Not found" }, 404); }
+  });
+
   // --- Root / Health ---
   app.get("/", (c) => c.json({ name: "background-agents" }));
   app.get("/health", (c) => c.json({
     ok: true,
     workspace: config.workspace.exists ? config.workspace.path : null,
     model: config.runtime.model,
+    thinkingLevel: config.runtime.thinkingLevel,
     concurrency: config.runtime.maxConcurrency,
     queue: runner.queue.length,
     active: runner.active,
@@ -58,16 +109,25 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
   // --- Config ---
   app.get("/api/config", (c) => c.json({
     model: config.runtime.model,
+    thinkingLevel: config.runtime.thinkingLevel,
     concurrency: config.runtime.maxConcurrency,
     workspace: config.workspace.exists ? config.workspace.path : null,
     extensions: extensionList(extensions),
   }));
 
   app.put("/api/config/model", async (c) => {
-    const { model } = await c.req.json();
-    if (!model || typeof model !== "string") return c.json({ error: "model required" }, 400);
-    config.runtime.model = model;
-    return c.json({ model: config.runtime.model });
+    const { model, thinkingLevel, thinking } = await c.req.json();
+    if (model !== undefined) {
+      if (!model || typeof model !== "string") return c.json({ error: "model must be a non-empty string" }, 400);
+      config.runtime.model = model;
+    }
+    const nextThinking = thinkingLevel || thinking;
+    if (nextThinking !== undefined) {
+      if (!nextThinking || typeof nextThinking !== "string") return c.json({ error: "thinkingLevel must be a non-empty string" }, 400);
+      config.runtime.thinkingLevel = nextThinking;
+    }
+    persistEnv(config.root, { AGENT_MODEL: config.runtime.model, AGENT_THINKING: config.runtime.thinkingLevel });
+    return c.json({ model: config.runtime.model, thinkingLevel: config.runtime.thinkingLevel });
   });
 
   // --- Jobs ---
@@ -117,9 +177,13 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
     const body = await c.req.json();
     const prompt = body.prompt || body.text;
     if (!prompt) return c.json({ error: "Missing prompt" }, 400);
-    // Update the job with the new prompt and re-enqueue
-    await store.update(job.id, { status: "queued", prompt });
-    await store.event(job.id, "follow_up.queued", { prompt: prompt.slice(0, 50_000) });
+    const patch = { status: "queued", prompt };
+    if (body.model) patch.model = body.model;
+    if (body.thinkingLevel || body.thinking) patch.thinkingLevel = body.thinkingLevel || body.thinking;
+    if (body.messageMode || body.mode) patch.messageMode = body.messageMode || body.mode;
+    // Update the job with the new prompt/config and re-enqueue
+    await store.update(job.id, patch);
+    await store.event(job.id, "follow_up.queued", { prompt: prompt.slice(0, 50_000), model: patch.model || job.model, thinkingLevel: patch.thinkingLevel || job.thinkingLevel, messageMode: patch.messageMode || job.messageMode || "follow_up" });
     runner.enqueue(store.get(job.id));
     return c.json({ job: store.pub(store.get(job.id)) }, 202);
   });
@@ -134,6 +198,8 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
       issueKey: body.issueKey || null,
       prompt,
       model: body.model || config.runtime.model,
+      thinkingLevel: body.thinkingLevel || body.thinking || config.runtime.thinkingLevel,
+      messageMode: body.messageMode || body.mode || "follow_up",
       body,
       autoComment: body.autoComment,
     });

@@ -44,6 +44,13 @@ export function formatIssue(issue) {
   ];
   if (f.duedate) lines.push(`- **Due**: ${f.duedate}`);
   if (f.parent) lines.push(`- **Parent**: ${f.parent.key} ${f.parent.fields?.summary || ""}`);
+  if (f.attachment?.length) {
+    lines.push(`- **Attachments**: ${f.attachment.length}`);
+    lines.push("", "## Attachments", "");
+    for (const a of f.attachment) {
+      lines.push(`- **${a.filename}** (id: ${a.id}, ${a.mimeType || "unknown"}, ${a.size || 0} bytes) by ${a.author?.displayName || "?"}`);
+    }
+  }
   lines.push("", "## Description", "", desc);
   return lines.join("\n");
 }

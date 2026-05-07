@@ -15,6 +15,7 @@ import { repoExtension } from "../extensions/repo/index.mjs";
 import { envExtension } from "../extensions/env/index.mjs";
 import { browserExtension } from "../extensions/browser/index.mjs";
 import { gitExtension } from "../extensions/git/index.mjs";
+import { figmaExtension } from "../extensions/figma/index.mjs";
 
 const config = await loadConfig();
 const extensions = loadExtensions([
@@ -24,6 +25,7 @@ const extensions = loadExtensions([
   repoExtension(),
   envExtension(),
   browserExtension(),
+  figmaExtension(),
 ]);
 
 const store = new JobStore(config);
@@ -46,7 +48,8 @@ const app = createApp({ config, store, runner, runtime, extensions });
 
 const server = serve({ fetch: app.fetch, hostname: config.server.host, port: config.server.port });
 console.log(`[background-agents] http://${config.server.host}:${config.server.port}`);
-console.log(`[background-agents] ui http://${config.server.host}:${config.server.port}/ui`);
+console.log(`[background-agents] ui  http://${config.server.host}:${config.server.port}/ui`);
+console.log(`[background-agents] app http://${config.server.host}:${config.server.port}/app`);
 if (config.workspace.exists) console.log(`[background-agents] workspace ${config.workspace.path}`);
 
 function shutdown() { runtime.disposeAll(); processes.stopAll(); server.close(); process.exit(0); }

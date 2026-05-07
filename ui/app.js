@@ -44,8 +44,11 @@ async function api(path, opts = {}) {
 
 let state = { view: "list", jobs: [], health: null, jobId: null, job: null, events: [], chat: "", thinking: "", tools: [] };
 let eventSource = null;
-let formState = { prompt: "", issueKey: "", model: "" };
+let formState = { prompt: "", issueKey: "", model: "", thinkingLevel: "" };
 let followUpText = "";
+let followUpModel = "";
+let followUpThinkingLevel = "";
+let followUpMessageMode = "follow_up";
 
 // --- URL ---
 function pushUrl(v, id) { history.pushState({}, "", v === "detail" && id ? `/ui#job/${id}` : "/ui"); }
@@ -128,9 +131,10 @@ async function triggerRun() {
   const body = { prompt };
   if (formState.issueKey.trim()) body.issueKey = formState.issueKey.trim();
   if (formState.model.trim()) body.model = formState.model.trim();
+  if (formState.thinkingLevel.trim()) body.thinkingLevel = formState.thinkingLevel.trim();
   const endpoint = body.issueKey ? "/api/jira/trigger" : "/api/run";
   const res = await api(endpoint, { method: "POST", body: JSON.stringify(body) });
-  formState.prompt = ""; formState.issueKey = "";
+  formState.prompt = ""; formState.issueKey = ""; formState.thinkingLevel = "";
   if (res.job?.id) selectJob(res.job.id); else { await fetchJobs(); render(); }
 }
 
@@ -139,11 +143,18 @@ async function sendFollowUp() {
   if (!text || !state.jobId) return;
   followUpText = "";
   const input = $("#follow-up-input"); if (input) input.value = "";
-  await api(`/api/jobs/${state.jobId}/prompt`, { method: "POST", body: JSON.stringify({ prompt: text }) });
+  const body = { prompt: text };
+  if (followUpModel.trim()) body.model = followUpModel.trim();
+  if (followUpThinkingLevel.trim()) body.thinkingLevel = followUpThinkingLevel.trim();
+  body.messageMode = followUpMessageMode || "follow_up";
+  await api(`/api/jobs/${state.jobId}/prompt`, { method: "POST", body: JSON.stringify(body) });
 }
 
-async function switchModel(model) {
-  await api("/api/config/model", { method: "PUT", body: JSON.stringify({ model }) });
+async function switchModel(model, thinkingLevel) {
+  const body = {};
+  if (model) body.model = model;
+  if (thinkingLevel) body.thinkingLevel = thinkingLevel;
+  await api("/api/config/model", { method: "PUT", body: JSON.stringify(body) });
   await fetchHealth(); render();
 }
 
@@ -166,7 +177,7 @@ function renderTimeline() {
     let resultRaw = t.outputText || "";
     if (!resultRaw && t.output) resultRaw = typeof t.output === "string" ? t.output : JSON.stringify(t.output, null, 2);
     if (!resultRaw && t.result) resultRaw = String(t.result);
-    resultRaw = resultRaw.slice(0, 3000);
+    resultRaw = resultRaw.slice(0, 50000);
     const hasAnsi = resultRaw.includes("\x1b[");
     // Build detail content
     const detailChildren = [];
@@ -212,8 +223,10 @@ function renderStats() {
     h("div", { class: "card" }, h("h3", {}, "Queue"), h("div", { class: "value" }, String(hl.queue ?? 0))),
     h("div", { class: "card" }, h("h3", {}, "Active"), h("div", { class: "value" }, String(hl.active ?? 0))),
     h("div", { class: "card" }, h("h3", {}, "Jobs"), h("div", { class: "value" }, String(hl.jobs ?? 0))),
-    h("div", { class: "card clickable", on: { click: () => { const m = prompt("Model:", state.health?.model || ""); if (m) switchModel(m); } } },
-      h("h3", {}, "Model"), h("div", { class: "value" }, hl.model || "-")));
+    h("div", { class: "card clickable", on: { click: () => { const m = prompt("Model:", state.health?.model || ""); if (m) switchModel(m, null); } } },
+      h("h3", {}, "Model"), h("div", { class: "value" }, hl.model || "-")),
+    h("div", { class: "card clickable", on: { click: () => { const t = prompt("Thinking level:", state.health?.thinkingLevel || "xhigh"); if (t) switchModel(null, t); } } },
+      h("h3", {}, "Thinking"), h("div", { class: "value" }, hl.thinkingLevel || "-")));
 }
 
 function renderExtensions() {
@@ -227,13 +240,15 @@ function renderExtensions() {
 function renderTrigger() {
   const issueInput = h("input", { type: "text", placeholder: "Issue key (optional)", on: { input: (e) => { formState.issueKey = e.target.value; } } });
   const modelInput = h("input", { type: "text", placeholder: `Model (default: ${state.health?.model || ""})`, on: { input: (e) => { formState.model = e.target.value; } } });
+  const thinkingInput = h("input", { type: "text", placeholder: `Thinking (default: ${state.health?.thinkingLevel || "xhigh"})`, on: { input: (e) => { formState.thinkingLevel = e.target.value; } } });
   const promptArea = h("textarea", { placeholder: "Prompt", rows: "3", on: { input: (e) => { formState.prompt = e.target.value; }, keydown: (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) triggerRun(); } } });
   if (formState.issueKey) issueInput.value = formState.issueKey;
   if (formState.model) modelInput.value = formState.model;
+  if (formState.thinkingLevel) thinkingInput.value = formState.thinkingLevel;
   if (formState.prompt) promptArea.value = formState.prompt;
   return h("div", { class: "trigger-form" },
     h("h2", {}, "New Job"),
-    h("div", { class: "row" }, issueInput, modelInput),
+    h("div", { class: "row" }, issueInput, modelInput, thinkingInput),
     h("div", { class: "row" }, promptArea),
     h("div", { class: "row" }, h("button", { on: { click: triggerRun } }, "Run"), h("span", { style: "color:var(--muted);font-size:11px;margin-left:8px;align-self:center" }, "Cmd+Enter")));
 }
@@ -257,6 +272,15 @@ function renderDetail() {
   const answer = state.chat || j.result || (j.status === "running" ? "" : "(no output)");
   const sessionEvt = state.events.find((e) => e.type === "agent.session_created");
 
+  const followUpModeSelect = h("select", { on: { change: (e) => { followUpMessageMode = e.target.value; } } },
+    h("option", { value: "follow_up" }, "follow-up"),
+    h("option", { value: "steer" }, "steer"));
+  followUpModeSelect.value = followUpMessageMode || "follow_up";
+  const followUpModelInput = h("input", { type: "text", placeholder: `Model (${j.model || state.health?.model || ""})`, on: { input: (e) => { followUpModel = e.target.value; } } });
+  const followUpThinkingInput = h("input", { type: "text", placeholder: `Thinking (${j.thinkingLevel || state.health?.thinkingLevel || "xhigh"})`, on: { input: (e) => { followUpThinkingLevel = e.target.value; } } });
+  if (followUpModel) followUpModelInput.value = followUpModel;
+  if (followUpThinkingLevel) followUpThinkingInput.value = followUpThinkingLevel;
+
   const followUpInput = h("input", {
     id: "follow-up-input", type: "text", placeholder: "Send follow-up message...",
     on: { input: (e) => { followUpText = e.target.value; }, keydown: (e) => { if (e.key === "Enter") sendFollowUp(); } },
@@ -270,7 +294,7 @@ function renderDetail() {
     h("h2", {}, j.title || j.id),
     h("div", { id: "job-info", class: "job-info" },
       h("span", { class: badge(j.status) }, j.status),
-      ` | ${sessionEvt?.data?.model || j.model || "-"} | ${ago(j.createdAt)} ago`,
+      ` | ${sessionEvt?.data?.model || j.model || "-"} | thinking=${sessionEvt?.data?.thinkingLevel || j.thinkingLevel || "-"} | ${ago(j.createdAt)} ago`,
       j.error ? h("span", { class: "job-error" }, " | " + j.error.slice(0, 200)) : null),
     // Tools + session info
     sessionEvt?.data?.tools ? h("div", { class: "session-tools" },
@@ -282,6 +306,9 @@ function renderDetail() {
     // Follow-up input
     h("div", { class: "follow-up" },
       followUpInput,
+      followUpModeSelect,
+      followUpModelInput,
+      followUpThinkingInput,
       h("button", { on: { click: sendFollowUp } }, "Send")),
     // Timeline
     h("div", { class: "timeline-section" },

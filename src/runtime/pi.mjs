@@ -10,6 +10,8 @@ import { systemPrompt } from "../agents/default.mjs";
 import { piJiraExtensionSource } from "./pi-jira-extension.mjs";
 import { piGitHubExtensionSource } from "./pi-github-extension.mjs";
 import { piGitExtensionSource } from "./pi-git-extension.mjs";
+import { piFigmaExtensionSource } from "./pi-figma-extension.mjs";
+import { piViewExtensionSource } from "./pi-view-extension.mjs";
 import { RepoCache } from "../../extensions/github/repo-cache.mjs";
 import { trim } from "../core/redact.mjs";
 
@@ -18,6 +20,10 @@ import { createAgentSession, SessionManager, DefaultResourceLoader, AuthStorage,
 
 const VM_HOME = "/home/user";
 const VM_WORKSPACE = "/home/user/workspace";
+
+function effectiveThinkingLevel(job, config) {
+  return job.thinkingLevel || job.thinking || config.runtime.thinkingLevel || "xhigh";
+}
 
 // --- Event extractors (ACP format from Agent OS) ---
 function acpText(event) {
@@ -57,19 +63,26 @@ async function cloneWorkspace(srcPath, dstPath) {
 
 // --- Live session for follow-ups ---
 class LiveSession {
-  constructor({ vm, piSession, sessionId, unsub, runtime }) {
+  constructor({ vm, piSession, sessionId, unsub, runtime, model, thinkingLevel }) {
     this.vm = vm;
     this.piSession = piSession;
     this.sessionId = sessionId;
     this.unsub = unsub;
     this.runtime = runtime;
+    this.model = model;
+    this.thinkingLevel = thinkingLevel;
     this.lastActivity = Date.now();
     this.onEvent = null; // current event callback, updated on follow-up
   }
-  async prompt(text) {
+  async prompt(text, mode = "follow_up") {
     this.lastActivity = Date.now();
-    if (this.vm) return this.vm.prompt(this.sessionId, text);
-    if (this.piSession) { await this.piSession.prompt(text); return { text: "" }; }
+    const streamingBehavior = mode === "steer" ? "steer" : "followUp";
+    if (this.vm) return this.vm.prompt(this.sessionId, text, { streamingBehavior });
+    if (this.piSession) {
+      if (this.piSession.isStreaming) await this.piSession.prompt(text, { streamingBehavior });
+      else await this.piSession.prompt(text);
+      return { text: "" };
+    }
   }
   dispose() {
     this.unsub?.();
@@ -125,10 +138,14 @@ export class PiRuntime {
   async run(job, { onEvent }) {
     // Live session exists → reuse it (same Pi conversation history)
     if (this.sessions.has(job.id)) return this._followUp(job, onEvent);
-    // No live session but has a persisted Pi session file → resume from disk (direct mode)
+    // No live session but has a persisted Pi session file/dir → resume from disk.
     if (job.piSessionFile && existsSync(job.piSessionFile)) {
       console.log("[pi] resuming from persisted session:", job.piSessionFile);
       return this._resumeFromDisk(job, onEvent);
+    }
+    if (this.mode === "agentos" && job.piSessionDir && existsSync(job.piSessionDir)) {
+      console.log("[pi:agentos] resuming from persisted session dir:", job.piSessionDir);
+      return this._startAgentOs(job, onEvent);
     }
     // No live session, no persisted file, but has previous output → inject context
     if (job.output || job.result) {
@@ -140,10 +157,23 @@ export class PiRuntime {
 
   async _followUp(job, onEvent) {
     const live = this.sessions.get(job.id);
+    const nextModel = job.model || this.config.runtime.model;
+    const nextThinkingLevel = effectiveThinkingLevel(job, this.config);
+    if ((live.model && live.model !== nextModel) || (live.thinkingLevel && live.thinkingLevel !== nextThinkingLevel)) {
+      console.log("[pi] switching session config:", live.model, live.thinkingLevel, "->", nextModel, nextThinkingLevel);
+      await onEvent("agent.session_switch", {
+        from: { sessionId: live.sessionId, model: live.model, thinkingLevel: live.thinkingLevel },
+        to: { model: nextModel, thinkingLevel: nextThinkingLevel },
+      });
+      live.dispose();
+      this.sessions.delete(job.id);
+      return this._resumeWithContext(job, onEvent);
+    }
     console.log("[pi] follow-up:", live.sessionId);
     live.onEvent = onEvent;
-    await onEvent("agent.follow_up", { sessionId: live.sessionId });
-    await live.prompt(job.prompt);
+    const messageMode = job.messageMode || "follow_up";
+    await onEvent("agent.follow_up", { sessionId: live.sessionId, model: live.model, thinkingLevel: live.thinkingLevel, messageMode });
+    await live.prompt(job.prompt, messageMode);
     console.log("[pi] follow-up done");
     return { sessionId: live.sessionId, text: "" };
   }
@@ -174,6 +204,12 @@ export class PiRuntime {
   async _startAgentOs(job, onEvent) {
     const jobDir = job.workspacePath;
     await mkdir(jobDir, { recursive: true });
+    job.piSessionDir = job.piSessionDir || resolve(jobDir, ".pi-sessions");
+    job.figmaArtifactsDir = job.figmaArtifactsDir || resolve(jobDir, "figma-artifacts");
+    job.jiraArtifactsDir = job.jiraArtifactsDir || resolve(jobDir, "jira-artifacts");
+    await mkdir(job.piSessionDir, { recursive: true });
+    await mkdir(job.figmaArtifactsDir, { recursive: true });
+    await mkdir(job.jiraArtifactsDir, { recursive: true });
 
     // Clone configured repos into per-job worktrees
     let repoToken = null;
@@ -213,12 +249,35 @@ export class PiRuntime {
     }
 
     const model = job.model || this.config.runtime.model;
-    let defaultProvider = "openai-codex", defaultModel = "gpt-5.4";
+    const thinkingLevel = effectiveThinkingLevel(job, this.config);
+    let defaultProvider = "openai-codex", defaultModel = "gpt-5.5";
     if (model?.includes("/")) [defaultProvider, defaultModel] = model.split("/", 2);
     else if (model) defaultModel = model;
 
     // Build mounts from cloned repos
-    const mounts = [];
+    const mounts = [{
+      path: `${VM_WORKSPACE}/.pi-sessions`,
+      driver: createHostDirBackend({ hostPath: job.piSessionDir, readOnly: false }),
+      readOnly: false,
+    }, {
+      path: `${VM_WORKSPACE}/figma-artifacts`,
+      driver: createHostDirBackend({ hostPath: job.figmaArtifactsDir, readOnly: false }),
+      readOnly: false,
+    }, {
+      // Back-compat for older Figma exports/instructions that used figma-assets.
+      path: `${VM_WORKSPACE}/figma-assets`,
+      driver: createHostDirBackend({ hostPath: job.figmaArtifactsDir, readOnly: false }),
+      readOnly: false,
+    }, {
+      path: `${VM_WORKSPACE}/jira-artifacts`,
+      driver: createHostDirBackend({ hostPath: job.jiraArtifactsDir, readOnly: false }),
+      readOnly: false,
+    }, {
+      // Back-compat for the original Jira attachment downloader path.
+      path: `${VM_WORKSPACE}/attachments`,
+      driver: createHostDirBackend({ hostPath: job.jiraArtifactsDir, readOnly: false }),
+      readOnly: false,
+    }];
     if (mountedRepos.length > 0 && configuredRepos.length > 0) {
       // Mount the parent repos/ dir as a single mount so Pi's read tool can see all repos
       const reposHostDir = resolve(jobDir, "repos");
@@ -278,7 +337,7 @@ export class PiRuntime {
     // Models: copy from host if exists
     try { await vm.writeFile(`${piDir}/models.json`, readFileSync(resolve(homedir(), ".pi", "agent", "models.json"), "utf8")); } catch {}
 
-    await vm.writeFile(`${piDir}/settings.json`, JSON.stringify({ defaultProvider, defaultModel, defaultThinkingLevel: "low" }, null, 2));
+    await vm.writeFile(`${piDir}/settings.json`, JSON.stringify({ defaultProvider, defaultModel, defaultThinkingLevel: thinkingLevel }, null, 2));
     await vm.mkdir(VM_WORKSPACE, { recursive: true });
 
     // Write Pi extensions into VFS so they load as native tools
@@ -293,6 +352,12 @@ export class PiRuntime {
 
     // Git extension: calls host toolkit via internal RPC
     await vm.writeFile(`${extDir}/git-tools.js`, piGitExtensionSource());
+
+    // Figma extension: delegates to host Figma tools for heavy operations
+    await vm.writeFile(`${extDir}/figma-tools.js`, piFigmaExtensionSource());
+
+    // Generic viewer extension: return images as image attachments
+    await vm.writeFile(`${extDir}/view-tools.js`, piViewExtensionSource());
 
     // Build Jira env vars for the extension
     const jiraEnv = {};
@@ -326,10 +391,15 @@ export class PiRuntime {
       cwd: VM_WORKSPACE,
       env: {
         HOME: VM_HOME,
+        PI_SESSION_DIR: `${VM_WORKSPACE}/.pi-sessions`,
+        FIGMA_ARTIFACTS_DIR: `${VM_WORKSPACE}/figma-artifacts`,
         ...(process.env.OPENAI_API_KEY ? { OPENAI_API_KEY: process.env.OPENAI_API_KEY } : {}),
         ...(process.env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY } : {}),
         ...(process.env.OPENAI_BASE_URL ? { OPENAI_BASE_URL: process.env.OPENAI_BASE_URL } : {}),
         ...(process.env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL } : {}),
+        ...(process.env.FIGMA_PERSONAL_ACCESS_TOKEN ? { FIGMA_PERSONAL_ACCESS_TOKEN: process.env.FIGMA_PERSONAL_ACCESS_TOKEN } : {}),
+        ...(process.env.FIGMA_TEAM_ID ? { FIGMA_TEAM_ID: process.env.FIGMA_TEAM_ID } : {}),
+        ...(process.env.FIGMA_OUTPUT_DIR ? { FIGMA_OUTPUT_DIR: process.env.FIGMA_OUTPUT_DIR } : {}),
         ...jiraEnv,
         ...githubEnv,
       },
@@ -337,10 +407,10 @@ export class PiRuntime {
     });
     const sessionId = created.sessionId;
     console.log("[pi:agentos] session:", sessionId, "model:", defaultProvider + "/" + defaultModel);
-    await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_search", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
+    await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, thinkingLevel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_list_attachments", "jira_download_attachment", "jira_search", "jira_count", "jira_board_jql", "jira_board_count", "figma_get_file", "figma_find_nodes", "figma_get_node_subtree", "figma_inspect_node", "figma_export_assets", "view_image", "figma_get_components", "figma_get_styles", "figma_get_comments", "figma_get_images", "figma_search", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
 
     // Create live session first so the event handler can reference it
-    const live = new LiveSession({ vm, sessionId, unsub: null, runtime: "agentos" });
+    const live = new LiveSession({ vm, sessionId, unsub: null, runtime: "agentos", model: defaultProvider + "/" + defaultModel, thinkingLevel });
     live.onEvent = onEvent;
     this.sessions.set(job.id, live);
 
@@ -379,6 +449,7 @@ export class PiRuntime {
 
     const cwd = existsSync(jobRepoDir) ? jobRepoDir : jobDir;
     const modelStr = job.model || this.config.runtime.model;
+    const thinkingLevel = effectiveThinkingLevel(job, this.config);
     const agentDir = getAgentDir();
     const authStorage = AuthStorage.create();
     const modelRegistry = new ModelRegistry(authStorage);
@@ -407,15 +478,15 @@ export class PiRuntime {
     } else {
       sessionManager = SessionManager.create(cwd, sessDir);
     }
-    const { session } = await createAgentSession({ cwd, sessionManager, resourceLoader, authStorage, modelRegistry, tools, ...(model ? { model } : {}) });
+    const { session } = await createAgentSession({ cwd, sessionManager, resourceLoader, authStorage, modelRegistry, tools, thinkingLevel, ...(model ? { model } : {}) });
     if (!session.model) throw new Error(`No model available. Tried: ${modelStr}`);
     // Persist the session file path to the job record
     job.piSessionFile = sessionManager.getSessionFile();
 
     console.log("[pi:direct] session:", session.sessionId, "model:", session.model.provider + "/" + session.model.id, "cwd:", cwd);
-    await onEvent("agent.session_created", { sessionId: session.sessionId, model: session.model.provider + "/" + session.model.id, runtime: "direct", tools: tools.map((t) => t.name), cwd });
+    await onEvent("agent.session_created", { sessionId: session.sessionId, model: session.model.provider + "/" + session.model.id, thinkingLevel, runtime: "direct", tools: tools.map((t) => t.name), cwd });
 
-    const live = new LiveSession({ piSession: session, sessionId: session.sessionId, unsub: null, runtime: "direct" });
+    const live = new LiveSession({ piSession: session, sessionId: session.sessionId, unsub: null, runtime: "direct", model: session.model.provider + "/" + session.model.id, thinkingLevel });
     live.onEvent = onEvent;
     this.sessions.set(job.id, live);
 

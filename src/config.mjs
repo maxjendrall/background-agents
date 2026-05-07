@@ -41,6 +41,7 @@ export async function loadConfig() {
     },
     runtime: {
       model: process.env.AGENT_MODEL || "claude-sonnet-4-6",
+      thinkingLevel: process.env.AGENT_THINKING || "xhigh",
       maxConcurrency: int("MAX_CONCURRENCY", 2),
       mode: process.env.RUNTIME || "agentos", // "agentos" or "direct"
     },
@@ -63,6 +64,7 @@ export async function loadConfig() {
       autoComment: bool("JIRA_AUTO_COMMENT"),
       triggerMention: process.env.JIRA_TRIGGER_MENTION || "@agent",
       triggerStatuses: list(process.env.JIRA_TRIGGER_STATUSES),
+      triggerLabels: list(process.env.JIRA_TRIGGER_LABELS),
       oauth: {
         clientId: process.env.JIRA_OAUTH_CLIENT_ID || "",
         clientSecret: process.env.JIRA_OAUTH_CLIENT_SECRET || "",
@@ -87,6 +89,11 @@ export async function loadConfig() {
     },
     browser: {
       headless: bool("BROWSER_HEADLESS", true),
+    },
+    figma: {
+      personalAccessToken: process.env.FIGMA_PERSONAL_ACCESS_TOKEN || "",
+      teamId: process.env.FIGMA_TEAM_ID || "",
+      outputDir: process.env.FIGMA_OUTPUT_DIR || "figma-assets",
     },
   };
 }

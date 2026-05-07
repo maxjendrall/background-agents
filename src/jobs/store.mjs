@@ -37,13 +37,15 @@ export class JobStore {
       title: input.title || input.issueKey || "job",
       issueKey: input.issueKey || null,
       prompt: input.prompt, model: input.model || this.config.runtime.model,
+      thinkingLevel: input.thinkingLevel || input.thinking || this.config.runtime.thinkingLevel,
+      messageMode: input.messageMode || input.mode || "follow_up",
       body: input.body || {}, autoComment: Boolean(input.autoComment),
       workspacePath: ws, artifactsPath: resolve(dir, "artifacts"),
       createdAt: now(), updatedAt: now(),
     };
     this.jobs.set(jobId, job);
     await this.#write(job);
-    await this.event(jobId, "job.created", { kind: job.kind, issueKey: job.issueKey });
+    await this.event(jobId, "job.created", { kind: job.kind, issueKey: job.issueKey, prompt: (input.prompt || "").slice(0, 50_000), title: job.title, model: job.model });
     return job;
   }
 
@@ -104,10 +106,10 @@ export class JobStore {
   pub(job, opts = {}) {
     return {
       id: job.id, kind: job.kind, title: job.title, issueKey: job.issueKey,
-      status: job.status, model: job.model,
+      status: job.status, model: job.model, thinkingLevel: job.thinkingLevel || null, messageMode: job.messageMode || null,
       createdAt: job.createdAt, startedAt: job.startedAt || null, completedAt: job.completedAt || null,
       result: job.result || null, error: job.error || null,
-      hasSession: Boolean(job.piSessionFile),
+      hasSession: Boolean(job.piSessionFile || job.piSessionDir),
       ...(opts.events ? { events: opts.events } : {}),
     };
   }

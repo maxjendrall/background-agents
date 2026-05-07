@@ -1,5 +1,6 @@
 import { hostTool, toolKit } from "@rivet-dev/agent-os-core";
 import { z } from "zod";
+import { resolve } from "node:path";
 import { JiraClient } from "./client.mjs";
 import { trim } from "../../src/core/redact.mjs";
 import { formatIssue, formatComments } from "./format.mjs";
@@ -16,6 +17,25 @@ function commentText(body) {
   return "";
 }
 
+function normLabel(s) { return String(s || "").trim().toLowerCase(); }
+function configuredLabelSet(config) { return new Set((config.jira.triggerLabels || []).map(normLabel).filter(Boolean)); }
+function labelTriggerInfo(config, body) {
+  const wanted = configuredLabelSet(config);
+  if (!wanted.size) return { matched: false, labels: [] };
+  const current = (body?.issue?.fields?.labels || []).map(String);
+  const currentMatches = current.filter((l) => wanted.has(normLabel(l)));
+  const changelog = body?.changelog?.items || [];
+  const labelChanges = changelog.filter((c) => normLabel(c.field) === "labels");
+  if (!labelChanges.length) return { matched: false, labels: currentMatches };
+  const added = [];
+  for (const c of labelChanges) {
+    const before = new Set(String(c.fromString || "").split(/[, ]+/).map(normLabel).filter(Boolean));
+    const after = new Set(String(c.toString || "").split(/[, ]+/).map(normLabel).filter(Boolean));
+    for (const l of after) if (!before.has(l) && wanted.has(l)) added.push(l);
+  }
+  return { matched: added.length > 0 || currentMatches.length > 0, labels: added.length ? added : currentMatches };
+}
+
 async function buildPrompt(config, body, batchedEvents) {
   const key = issueKey(body);
   if (!key) throw new Error("Missing issue key");
@@ -28,6 +48,7 @@ async function buildPrompt(config, body, batchedEvents) {
 
   const events = batchedEvents || [body];
   const eventSummaries = events.map((evt) => {
+    if (evt._triggerReason) return evt._triggerReason;
     const comment = commentText(evt);
     const webhookEvent = evt.webhookEvent || "trigger";
     const user = evt.user?.displayName || evt.comment?.author?.displayName || "unknown";
@@ -42,6 +63,7 @@ async function buildPrompt(config, body, batchedEvents) {
   });
 
   const extra = body.prompt || body.instructions || "";
+  const noExplicitInstructions = !extra.trim();
   const prompt = [
     `You are assigned to Jira issue ${key}.`,
     ``,
@@ -58,8 +80,10 @@ async function buildPrompt(config, body, batchedEvents) {
     `## Rules`,
     `- Focus on what just happened above. Do not re-summarize the whole ticket.`,
     `- If someone asked a question or gave feedback, respond to THAT specifically.`,
+    noExplicitInstructions ? `- This was started without explicit extra instructions. First investigate the ticket and relevant code. If anything is unclear, add a Jira comment with your plan and concrete questions, then stop and wait for clarification. If it is clear, proceed with implementation and still report your plan/results in Jira.` : "",
+    `- If the issue has relevant attachments, use jira_list_attachments and jira_download_attachment to inspect them before implementing.`,
     `- If the task is clear, implement it.`,
-    `- If unclear, use jira_add_comment to ask a clarifying question.`,
+    `- If unclear, use jira_add_comment to ask a clarifying question and include your proposed plan.`,
     `- When done, use jira_add_comment to report results.`,
   ].filter(Boolean).join("\n");
   return { issueKey: key, prompt };
@@ -103,7 +127,7 @@ export function jiraExtension() {
           runner.enqueue(store.get(existing.id));
           return;
         }
-        const job = await store.create({ kind: "jira", title: key, issueKey: key, prompt, model: config.runtime.model, body: buf.firstBody, autoComment: false });
+        const job = await store.create({ kind: "jira", title: key, issueKey: key, prompt, model: config.runtime.model, thinkingLevel: config.runtime.thinkingLevel, body: buf.firstBody, autoComment: false });
         runner.enqueue(job);
       }
 
@@ -112,7 +136,7 @@ export function jiraExtension() {
       app.get("/api/jira/oauth/authorize", (c) => {
         const oauth = config.jira.oauth;
         if (!oauth?.clientId) return c.json({ error: "JIRA_OAUTH_CLIENT_ID not configured" }, 400);
-        const scopes = "read:jira-work write:jira-work read:jira-user manage:jira-project offline_access";
+        const scopes = "read:jira-work write:jira-work read:jira-user manage:jira-project read:attachment:jira read:board-scope:jira-software read:project:jira read:filter:jira read:jql:jira offline_access";
         const callbackUrl = `${c.req.header("x-forwarded-proto") || "http"}://${c.req.header("host")}/api/jira/oauth/callback`;
         const state = Math.random().toString(36).slice(2);
         const url = `https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id=${oauth.clientId}&scope=${encodeURIComponent(scopes)}&redirect_uri=${encodeURIComponent(callbackUrl)}&state=${state}&response_type=code&prompt=consent`;
@@ -140,6 +164,23 @@ export function jiraExtension() {
         return c.json({ connected: !!tokens?.refresh_token, mode: "oauth", site: tokens?.siteName || null, cloudId: tokens?.cloudId || null });
       });
 
+      // --- Node-side JQL utility route ---
+
+      async function runJqlRoute(c) {
+        const body = c.req.method === "GET" ? {} : await c.req.json().catch(() => ({}));
+        const jql = body.jql || c.req.query("jql");
+        const board = body.board || body.boardId || c.req.query("board") || c.req.query("boardId");
+        if ((!jql || typeof jql !== "string") && !board) return c.json({ error: "jql or board required" }, 400);
+        const countOnly = Boolean(body.count || body.countOnly || c.req.query("count") === "1" || c.req.query("countOnly") === "1");
+        const jira = new JiraClient(config);
+        if (countOnly) return c.json(board ? await jira.countBoard(board, jql || "") : await jira.countJql(jql));
+        const max = Number(body.maxResults || body.max || c.req.query("maxResults") || c.req.query("max") || 10);
+        return c.json(board ? await jira.searchBoard(board, jql || "", Number.isFinite(max) ? max : 10) : await jira.search(jql, Number.isFinite(max) ? max : 10));
+      }
+
+      app.get("/api/jira/search", runJqlRoute);
+      app.post("/api/jira/search", runJqlRoute);
+
       // --- Trigger routes ---
 
       app.post("/api/jira/trigger", async (c) => {
@@ -155,7 +196,7 @@ export function jiraExtension() {
           runner.enqueue(store.get(existing.id));
           return c.json({ job: store.pub(store.get(existing.id)), continued: true }, 202);
         }
-        const job = await store.create({ kind: "jira", title: key, issueKey: key, prompt, model: body.model || config.runtime.model, body, autoComment: body.autoComment });
+        const job = await store.create({ kind: "jira", title: key, issueKey: key, prompt, model: body.model || config.runtime.model, thinkingLevel: body.thinkingLevel || body.thinking || config.runtime.thinkingLevel, body, autoComment: body.autoComment });
         runner.enqueue(job);
         return c.json({ job: store.pub(job) }, 202);
       });
@@ -171,7 +212,10 @@ export function jiraExtension() {
         const mentioned = text.includes(config.jira.triggerMention);
         const status = body?.issue?.fields?.status?.name || "";
         const statusMatch = status && config.jira.triggerStatuses.includes(status);
-        if (!mentioned && !statusMatch) return c.json({ ignored: true, reason: "no match" }, 202);
+        const labelInfo = labelTriggerInfo(config, body);
+        const labelMatch = labelInfo.matched;
+        if (!mentioned && !statusMatch && !labelMatch) return c.json({ ignored: true, reason: "no match" }, 202);
+        if (labelMatch) body._triggerReason = `Triggered because Jira label matched: ${labelInfo.labels.join(", ")}.`;
 
         // Buffer this event, debounce 30s
         const existing = webhookBuffer.get(key);
@@ -191,15 +235,26 @@ export function jiraExtension() {
       });
     },
 
-    toolkits({ config }) {
+    toolkits({ config, job }) {
       const jira = new JiraClient(config);
+      const jiraArtifactsDir = job?.jiraArtifactsDir || (job?.workspacePath ? resolve(job.workspacePath, "jira-artifacts") : resolve(config.paths.data, "jira-attachments"));
       return [toolKit({
         name: "jira",
         description: "Jira issue tools",
         tools: {
           get_issue: hostTool({ description: "Fetch a Jira issue.", inputSchema: z.object({ issueKey: z.string().min(1) }), execute: ({ issueKey }) => jira.getIssue(issueKey) }),
           get_comments: hostTool({ description: "Fetch Jira comments.", inputSchema: z.object({ issueKey: z.string().min(1) }), execute: ({ issueKey }) => jira.getComments(issueKey) }),
+          list_attachments: hostTool({ description: "List attachments on a Jira issue.", inputSchema: z.object({ issueKey: z.string().min(1) }), execute: ({ issueKey }) => jira.listAttachments(issueKey) }),
+          download_attachment: hostTool({ description: "Download a Jira attachment by id into job artifacts.", inputSchema: z.object({ attachmentId: z.string().min(1) }), execute: async ({ attachmentId }) => {
+            const out = await jira.downloadAttachment(attachmentId, jiraArtifactsDir);
+            if (job?.jiraArtifactsDir && out.path?.startsWith(job.jiraArtifactsDir)) out.vmPath = `/home/user/workspace/jira-artifacts${out.path.slice(job.jiraArtifactsDir.length)}`;
+            return out;
+          } }),
           search: hostTool({ description: "JQL search.", inputSchema: z.object({ jql: z.string().min(1), max: z.number().default(10) }), execute: ({ jql, max }) => jira.search(jql, max) }),
+          count: hostTool({ description: "Count issues matching a JQL query without fetching issue details.", inputSchema: z.object({ jql: z.string().min(1) }), execute: ({ jql }) => jira.countJql(jql) }),
+          board_jql: hostTool({ description: "Resolve a Jira board id or /board/3 path to the board filter JQL.", inputSchema: z.object({ board: z.string().min(1) }), execute: ({ board }) => jira.getBoardJql(board) }),
+          board_search: hostTool({ description: "Search issues constrained by a Jira board filter, optionally ANDed with extra JQL.", inputSchema: z.object({ board: z.string().min(1), jql: z.string().default(""), max: z.number().default(10) }), execute: ({ board, jql, max }) => jira.searchBoard(board, jql, max) }),
+          board_count: hostTool({ description: "Count issues constrained by a Jira board filter, optionally ANDed with extra JQL.", inputSchema: z.object({ board: z.string().min(1), jql: z.string().default("") }), execute: ({ board, jql }) => jira.countBoard(board, jql) }),
           add_comment: hostTool({ description: "Comment on issue.", inputSchema: z.object({ issueKey: z.string().min(1), comment: z.string().min(1) }), execute: ({ issueKey, comment }) => jira.addComment(issueKey, comment) }),
           list_transitions: hostTool({ description: "List transitions.", inputSchema: z.object({ issueKey: z.string().min(1) }), execute: ({ issueKey }) => jira.listTransitions(issueKey) }),
           transition_issue: hostTool({ description: "Transition issue.", inputSchema: z.object({ issueKey: z.string().min(1), transitionId: z.string().min(1) }), execute: ({ issueKey, transitionId }) => jira.transitionIssue(issueKey, transitionId) }),

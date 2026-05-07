@@ -7,6 +7,8 @@ module.exports = function(pi) {
   const BASE = CLOUD_ID ? "https://api.atlassian.com/ex/jira/" + CLOUD_ID : process.env.JIRA_BASE_URL;
   const AUTH_MODE = process.env.JIRA_AUTH_MODE || "none";
   const ACCESS_TOKEN = process.env.JIRA_ACCESS_TOKEN;
+  const fs = require("fs");
+  const pathMod = require("path");
 
   if (!BASE || AUTH_MODE === "none") return;
 
@@ -16,12 +18,25 @@ module.exports = function(pi) {
     throw new Error("No Jira access token. Re-authorize at /api/jira/oauth/authorize");
   }
 
-  async function jiraReq(path, opts) {
+  async function jiraFetch(path, opts) {
     const url = BASE + path;
-    const res = await fetch(url, { ...opts, headers: { Authorization: getAuth(), Accept: "application/json", "Content-Type": "application/json", ...(opts?.headers || {}) } });
+    return fetch(url, { ...opts, headers: { Authorization: getAuth(), Accept: "application/json", ...(opts?.body ? { "Content-Type": "application/json" } : {}), ...(opts?.headers || {}) } });
+  }
+
+  async function jiraReq(path, opts) {
+    const res = await jiraFetch(path, opts);
     const text = await res.text();
     if (!res.ok) throw new Error(res.status + " " + text.slice(0, 500));
     return text ? JSON.parse(text) : {};
+  }
+
+  function safeName(name) {
+    return pathMod.basename(String(name || "attachment")).replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "attachment";
+  }
+
+  function fmtAttachments(attachments) {
+    if (!attachments?.length) return "(no attachments)";
+    return attachments.map(a => "- **" + a.filename + "** (id: " + a.id + ", " + (a.mimeType || "unknown") + ", " + (a.size || 0) + " bytes) by " + (a.author?.displayName || "?")).join("\\n");
   }
 
   // --- ADF to plain text ---
@@ -63,6 +78,11 @@ module.exports = function(pi) {
       "- **Updated**: " + (f.updated || "?"),
       f.duedate ? "- **Due**: " + f.duedate : "",
       f.parent ? "- **Parent**: " + f.parent.key + " " + (f.parent.fields?.summary || "") : "",
+      f.attachment?.length ? "- **Attachments**: " + f.attachment.length : "",
+      f.attachment?.length ? "" : "",
+      f.attachment?.length ? "## Attachments" : "",
+      f.attachment?.length ? "" : "",
+      f.attachment?.length ? fmtAttachments(f.attachment) : "",
       "",
       "## Description",
       "",
@@ -96,6 +116,53 @@ module.exports = function(pi) {
     },
   });
 
+
+
+  pi.registerTool({
+    name: "jira_list_attachments",
+    description: "List attachments on a Jira issue, including attachment ids for download.",
+    parameters: { type: "object", properties: { issueKey: { type: "string", description: "e.g. PT-1" } }, required: ["issueKey"] },
+    execute: async (toolCallId, { issueKey }) => {
+      const issue = await jiraReq("/rest/api/3/issue/" + encodeURIComponent(issueKey) + "?fields=attachment");
+      return { content: [{ type: "text", text: fmtAttachments(issue.fields?.attachment || []) }] };
+    },
+  });
+
+  pi.registerTool({
+    name: "jira_download_attachment",
+    description: "Download a Jira attachment by id into /home/user/workspace/attachments and return the local file path. Use after jira_list_attachments.",
+    parameters: { type: "object", properties: { attachmentId: { type: "string" } }, required: ["attachmentId"] },
+    execute: async (toolCallId, { attachmentId }) => {
+      const meta = await jiraReq("/rest/api/3/attachment/" + encodeURIComponent(attachmentId));
+      const res = await jiraFetch("/rest/api/3/attachment/content/" + encodeURIComponent(attachmentId), { headers: { Accept: "*/*" } });
+      if (!res.ok) throw new Error(res.status + " " + (await res.text()).slice(0, 500));
+      const outDir = "/home/user/workspace/attachments";
+      fs.mkdirSync(outDir, { recursive: true });
+      const outPath = pathMod.join(outDir, attachmentId + "-" + safeName(meta.filename));
+      fs.writeFileSync(outPath, Buffer.from(await res.arrayBuffer()));
+      return { content: [{ type: "text", text: "Downloaded " + meta.filename + " (" + (meta.mimeType || "unknown") + ") to " + outPath }] };
+    },
+  });
+
+
+  function boardId(input) {
+    const m = String(input || "").match(/(?:^|\\/)board\\/(\\d+)$|^(\\d+)$/);
+    return m ? (m[1] || m[2]) : "";
+  }
+  async function boardJql(board) {
+    const id = boardId(board);
+    if (!id) throw new Error("board id required, e.g. 3 or /board/3");
+    const cfg = await jiraReq("/rest/agile/1.0/board/" + encodeURIComponent(id) + "/configuration");
+    const filterId = cfg.filter?.id;
+    if (!filterId) throw new Error("Board " + id + " does not expose a filter id");
+    const filter = await jiraReq("/rest/api/3/filter/" + encodeURIComponent(filterId));
+    if (!filter.jql) throw new Error("Filter " + filterId + " for board " + id + " has no JQL");
+    return { boardId: id, filterId, filterName: filter.name || cfg.filter?.name || null, jql: filter.jql };
+  }
+  function combineJql(baseJql, extraJql) {
+    return extraJql && extraJql.trim() ? "(" + baseJql + ") AND (" + extraJql + ")" : baseJql;
+  }
+
   pi.registerTool({
     name: "jira_search",
     description: "Search Jira issues with JQL. Returns a formatted list.",
@@ -111,6 +178,51 @@ module.exports = function(pi) {
       return { content: [{ type: "text", text: lines.join("\\n") }] };
     },
   });
+
+  pi.registerTool({
+    name: "jira_count",
+    description: "Count issues matching a JQL query without fetching issue details.",
+    parameters: { type: "object", properties: { jql: { type: "string" } }, required: ["jql"] },
+    execute: async (toolCallId, { jql }) => {
+      let result;
+      try {
+        result = await jiraReq("/rest/api/3/search/approximate-count", { method: "POST", body: JSON.stringify({ jql }) });
+        return { content: [{ type: "text", text: String(result.count || 0) + " issues (approximate)" }] };
+      } catch (e) {
+        result = await jiraReq("/rest/api/3/search", { method: "POST", body: JSON.stringify({ jql, maxResults: 0, fields: [] }) });
+        return { content: [{ type: "text", text: String(result.total || 0) + " issues" }] };
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "jira_board_count",
+    description: "Count issues in a Jira board filter, optionally ANDed with extra JQL. Board can be 3 or /board/3.",
+    parameters: { type: "object", properties: { board: { type: "string" }, jql: { type: "string" } }, required: ["board"] },
+    execute: async (toolCallId, { board, jql }) => {
+      const b = await boardJql(board);
+      const effectiveJql = combineJql(b.jql, jql || "");
+      let result;
+      try {
+        result = await jiraReq("/rest/api/3/search/approximate-count", { method: "POST", body: JSON.stringify({ jql: effectiveJql }) });
+        return { content: [{ type: "text", text: String(result.count || 0) + " issues in board " + b.boardId + " (approximate)" }] };
+      } catch (e) {
+        result = await jiraReq("/rest/api/3/search", { method: "POST", body: JSON.stringify({ jql: effectiveJql, maxResults: 0, fields: [] }) });
+        return { content: [{ type: "text", text: String(result.total || 0) + " issues in board " + b.boardId }] };
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "jira_board_jql",
+    description: "Resolve a Jira board id or /board/3 path to its filter JQL.",
+    parameters: { type: "object", properties: { board: { type: "string" } }, required: ["board"] },
+    execute: async (toolCallId, { board }) => {
+      const b = await boardJql(board);
+      return { content: [{ type: "text", text: "Board " + b.boardId + " filter " + b.filterId + " (" + (b.filterName || "unnamed") + "):\n" + b.jql }] };
+    },
+  });
+
 
   pi.registerTool({
     name: "jira_add_comment",
