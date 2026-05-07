@@ -18,6 +18,7 @@ import { gitExtension } from "../extensions/git/index.mjs";
 import { figmaExtension } from "../extensions/figma/index.mjs";
 import { contentfulExtension } from "../extensions/contentful/index.mjs";
 import { agentsExtension } from "../extensions/agents/index.mjs";
+import { viewExtension } from "../extensions/view/index.mjs";
 
 const config = await loadConfig();
 const extensions = loadExtensions([
@@ -28,6 +29,7 @@ const extensions = loadExtensions([
   envExtension(),
   browserExtension(),
   figmaExtension(),
+  viewExtension(),
   contentfulExtension(),
   agentsExtension(),
 ]);

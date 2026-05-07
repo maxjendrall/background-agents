@@ -222,9 +222,10 @@ Files: `src/runtime/pi-files-extension.mjs`
 
 ### `view`
 
-Files: `src/runtime/pi-view-extension.mjs`
+Files: `extensions/view/*`, `src/runtime/pi-view-extension.mjs`
 
-- `view_image(path)` returns image attachments so agents/users can inspect PNG/JPG/etc. instead of reading binary files as text.
+- `view_image(path)` delegates to a host-side binary reader and returns image attachments so agents/users can inspect PNG/JPG/etc. instead of reading binary files as text.
+- This avoids AgentOS binary-file corruption for PNG/JPG attachments and artifacts.
 
 ### `agents`
 
@@ -263,6 +264,7 @@ MAX_CONCURRENCY=10
 AGENT_BOOT_CONCURRENCY=10
 AGENT_BOOT_TIMEOUT_MS=45000
 AGENT_BOOT_RETRIES=3
+AGENT_AUTO_CONTINUE_LIMIT=5
 AGENT_SPAWN_LIMIT=25
 
 JIRA_TRIGGER_MENTION=@agent
@@ -275,6 +277,7 @@ CONTENTFUL_ENVIRONMENT=staging
 Operational notes:
 
 - `AGENT_BOOT_TIMEOUT_MS` and `AGENT_BOOT_RETRIES` prevent AgentOS startup from holding queue slots forever; stalled boots are disposed/requeued automatically.
+- Jira jobs that end without a final `jira_add_comment` are automatically continued up to `AGENT_AUTO_CONTINUE_LIMIT` times so a turn cannot silently stop mid-investigation.
 - Raise `MAX_CONCURRENCY` only if the server has enough memory/CPU and jobs are mostly I/O bound.
 - Add swap on small servers if many agents may build/test at the same time.
 - Large historical event logs can be compacted with:

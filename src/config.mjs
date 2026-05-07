@@ -48,6 +48,7 @@ export async function loadConfig() {
       agentBootConcurrency: int("AGENT_BOOT_CONCURRENCY", 10),
       agentBootTimeoutMs: int("AGENT_BOOT_TIMEOUT_MS", 45_000),
       agentBootRetries: int("AGENT_BOOT_RETRIES", 3),
+      agentAutoContinueLimit: int("AGENT_AUTO_CONTINUE_LIMIT", 5),
       mode: process.env.RUNTIME || "agentos", // "agentos" or "direct"
     },
     workspace: {

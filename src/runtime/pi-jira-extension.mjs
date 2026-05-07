@@ -7,6 +7,7 @@ module.exports = function(pi) {
   const BASE = CLOUD_ID ? "https://api.atlassian.com/ex/jira/" + CLOUD_ID : process.env.JIRA_BASE_URL;
   const AUTH_MODE = process.env.JIRA_AUTH_MODE || "none";
   const ACCESS_TOKEN = process.env.JIRA_ACCESS_TOKEN;
+  const HOST_TOOLS_PORT = process.env.AGENTOS_TOOLS_PORT;
   const fs = require("fs");
   const pathMod = require("path");
 
@@ -28,6 +29,18 @@ module.exports = function(pi) {
     const text = await res.text();
     if (!res.ok) throw new Error(res.status + " " + text.slice(0, 500));
     return text ? JSON.parse(text) : {};
+  }
+
+  async function callHostJira(tool, input) {
+    if (!HOST_TOOLS_PORT) throw new Error("Host Jira tools unavailable: AGENTOS_TOOLS_PORT not set");
+    const res = await fetch("http://127.0.0.1:" + HOST_TOOLS_PORT + "/call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toolkit: "jira", tool, input }),
+    });
+    const body = await res.json();
+    if (!body.ok) throw new Error(body.message || body.error || "Jira host tool failed");
+    return body.result;
   }
 
   function safeName(name) {
@@ -185,14 +198,9 @@ module.exports = function(pi) {
     description: "Download a Jira attachment by id into /home/user/workspace/attachments and return the local file path. Use after jira_list_attachments.",
     parameters: { type: "object", properties: { attachmentId: { type: "string" } }, required: ["attachmentId"] },
     execute: async (toolCallId, { attachmentId }) => {
-      const meta = await jiraReq("/rest/api/3/attachment/" + encodeURIComponent(attachmentId));
-      const res = await jiraFetch("/rest/api/3/attachment/content/" + encodeURIComponent(attachmentId), { headers: { Accept: "*/*" } });
-      if (!res.ok) throw new Error(res.status + " " + (await res.text()).slice(0, 500));
-      const outDir = "/home/user/workspace/attachments";
-      fs.mkdirSync(outDir, { recursive: true });
-      const outPath = pathMod.join(outDir, attachmentId + "-" + safeName(meta.filename));
-      fs.writeFileSync(outPath, Buffer.from(await res.arrayBuffer()));
-      return { content: [{ type: "text", text: "Downloaded " + meta.filename + " (" + (meta.mimeType || "unknown") + ") to " + outPath }] };
+      const out = await callHostJira("download_attachment", { attachmentId });
+      const p = out.vmPath || (out.path ? out.path.replace(/.*\/jira-artifacts\//, "/home/user/workspace/jira-artifacts/") : "");
+      return { content: [{ type: "text", text: "Downloaded " + (out.filename || attachmentId) + " (" + (out.mimeType || "unknown") + ") to " + p }], details: out };
     },
   });
 
