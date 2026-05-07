@@ -181,6 +181,7 @@ Files: `extensions/git/*`, `src/runtime/pi-git-extension.mjs`
 Files: `extensions/repo/*`, `extensions/github/repo-cache.mjs`
 
 - Maintains bare repository caches and per-job worktrees under `.data/`.
+- Agent branches are named `pt-ai-<last4 job id chars>` (for example `pt-ai-d938`), with no `/` in the branch name.
 - Mounts configured repos into `/home/user/workspace/repos/<owner>__<repo>` inside AgentOS.
 
 ### `env`

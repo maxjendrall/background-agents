@@ -7,3 +7,8 @@ export function id(prefix = "id") {
 export function slug(input, fallback = "x") {
   return String(input || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || fallback;
 }
+
+export function agentBranchName(jobId) {
+  const suffix = String(jobId || "").replace(/[^a-z0-9]/gi, "").slice(-4).toLowerCase().padStart(4, "x");
+  return `pt-ai-${suffix}`;
+}

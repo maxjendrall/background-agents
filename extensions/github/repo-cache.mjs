@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { slug } from "../../src/core/ids.mjs";
+import { agentBranchName, slug } from "../../src/core/ids.mjs";
 
 export class RepoCache {
   constructor(config, token) {
@@ -44,7 +44,7 @@ export class RepoCache {
     const cache = await this.ensureCache(owner, repo);
     const dirName = `${slug(owner)}__${slug(repo)}`;
     const hostPath = resolve(jobWorkspacePath, "repos", dirName);
-    const branch = `agent/${jobId}`;
+    const branch = agentBranchName(jobId);
     await mkdir(resolve(jobWorkspacePath, "repos"), { recursive: true });
 
     // If worktree already exists with a .git file, reuse it (preserves changes)

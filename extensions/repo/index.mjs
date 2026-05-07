@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { hostTool, toolKit } from "@rivet-dev/agent-os-core";
 import { z } from "zod";
-import { slug } from "../../src/core/ids.mjs";
+import { agentBranchName, slug } from "../../src/core/ids.mjs";
 import { parseGitHubRepo } from "../github/client.mjs";
 
 function mapPath(config, job, agentPath) {
@@ -43,7 +43,7 @@ export function repoExtension() {
               else await git(cache, ["remote", "update", "--prune"]);
               const dirName = `${slug(parsed.owner)}__${slug(parsed.repo)}`;
               const wt = resolve(job.workspacePath, "repos", dirName);
-              const branchName = branch || `agent/${job.issueKey || job.id}`;
+              const branchName = branch || agentBranchName(job.id);
               await mkdir(resolve(job.workspacePath, "repos"), { recursive: true });
               if (existsSync(wt)) await rm(wt, { recursive: true });
               await git(cache, ["worktree", "prune"]);

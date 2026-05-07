@@ -17,6 +17,7 @@ import { piContentfulExtensionSource } from "./pi-contentful-extension.mjs";
 import { piAgentsExtensionSource } from "./pi-agents-extension.mjs";
 import { RepoCache } from "../../extensions/github/repo-cache.mjs";
 import { trim } from "../core/redact.mjs";
+import { agentBranchName } from "../core/ids.mjs";
 
 // Direct Pi SDK imports for fallback runtime
 import { createAgentSession, SessionManager, DefaultResourceLoader, AuthStorage, ModelRegistry, getAgentDir, codingTools, createGrepTool, createFindTool, createLsTool } from "@mariozechner/pi-coding-agent";
@@ -78,10 +79,10 @@ function acpToolCall(event) {
   return null;
 }
 
-async function cloneWorkspace(srcPath, dstPath) {
+async function cloneWorkspace(srcPath, dstPath, branchName) {
   const { execSync } = await import("node:child_process");
   if (existsSync(resolve(srcPath, ".git"))) {
-    const branch = `agent/${Date.now()}`;
+    const branch = branchName || `pt-ai-${String(Date.now()).slice(-4)}`;
     try { execSync("git worktree prune", { cwd: srcPath, stdio: "ignore" }); } catch {}
     execSync(`git worktree add -B "${branch}" "${dstPath}" HEAD`, { cwd: srcPath, stdio: "ignore", timeout: 60_000 });
     return { method: "worktree", branch };
@@ -326,7 +327,7 @@ export class PiRuntime {
       const jobRepoDir = resolve(jobDir, "repo");
       if (!existsSync(jobRepoDir)) {
         await onEvent("job.cloning", { src: this.config.workspace.path });
-        const result = await cloneWorkspace(this.config.workspace.path, jobRepoDir);
+        const result = await cloneWorkspace(this.config.workspace.path, jobRepoDir, agentBranchName(job.id));
         await onEvent("job.cloned", result);
       }
       if (existsSync(jobRepoDir)) mountedRepos.push({ hostPath: jobRepoDir, agentPath: VM_WORKSPACE, branch: null });
@@ -571,7 +572,7 @@ export class PiRuntime {
     if (this.config.workspace.exists && !existsSync(jobRepoDir)) {
       console.log("[pi:direct] cloning workspace...");
       await onEvent("job.cloning", { src: this.config.workspace.path });
-      const result = await cloneWorkspace(this.config.workspace.path, jobRepoDir);
+      const result = await cloneWorkspace(this.config.workspace.path, jobRepoDir, agentBranchName(job.id));
       console.log("[pi:direct] clone done:", result.method);
       await onEvent("job.cloned", result);
     }
