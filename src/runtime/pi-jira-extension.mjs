@@ -10,7 +10,6 @@ module.exports = function(pi) {
   const HOST_TOOLS_PORT = process.env.AGENTOS_TOOLS_PORT;
   const fs = require("fs");
   const pathMod = require("path");
-  let jiraCommentSent = false;
 
   if (!BASE || AUTH_MODE === "none") return;
 
@@ -42,26 +41,6 @@ module.exports = function(pi) {
     const body = await res.json();
     if (!body.ok) throw new Error(body.message || body.error || "Jira host tool failed");
     return body.result;
-  }
-
-  function isLikelyProgressComment(comment) {
-    const text = String(comment || "").toLowerCase();
-    if (!text.trim()) return false;
-    const futureStarts = ["i'll ", "i’ll ", "i will ", "i am going to ", "i'm going to ", "we'll ", "we’ll ", "we will ", "we are going to "];
-    const workWords = ["investigate", "look into", "inspect", "check", "implement", "validate", "test", "open", "create", "push", "report", "follow up", "start", "begin", "work on"];
-    if (futureStarts.some(s => text.includes(s)) && workWords.some(w => text.includes(w))) return true;
-    const progressPhrases = [
-      "my plan is", "i plan to", "we plan to", "plan:", "i'm investigating", "i’m investigating", "i am investigating",
-      "i'm checking", "i’m checking", "i am checking", "i'm looking into", "i’m looking into", "i am looking into",
-      "i'm working on", "i’m working on", "i am working on", "we're working on", "we’re working on", "we are working on",
-      "report back", "update you", "update this ticket", "circle back"
-    ];
-    return progressPhrases.some(p => text.includes(p));
-  }
-
-  function assertJiraCommentAllowed(comment) {
-    if (!isLikelyProgressComment(comment)) return;
-    throw new Error("Jira progress/plan/acknowledgement comments are not allowed. Continue working and call jira_add_comment exactly once at the end with completed changes, tests, PR/status, or a concrete blocker/clarifying question.");
   }
 
   function safeName(name) {
@@ -310,13 +289,10 @@ module.exports = function(pi) {
     description: "Add a comment to a Jira issue.",
     parameters: { type: "object", properties: { issueKey: { type: "string" }, comment: { type: "string" } }, required: ["issueKey", "comment"] },
     execute: async (toolCallId, { issueKey, comment }) => {
-      if (jiraCommentSent) throw new Error("A Jira comment was already added in this turn. Do not add another one unless a new external follow-up starts a new turn.");
-      assertJiraCommentAllowed(comment);
       await jiraReq("/rest/api/3/issue/" + encodeURIComponent(issueKey) + "/comment", {
         method: "POST",
         body: JSON.stringify({ body: { type: "doc", version: 1, content: [{ type: "paragraph", content: [{ type: "text", text: comment }] }] } }),
       });
-      jiraCommentSent = true;
       return { content: [{ type: "text", text: "Comment added to " + issueKey }] };
     },
   });
