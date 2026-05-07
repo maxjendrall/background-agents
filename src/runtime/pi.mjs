@@ -13,6 +13,7 @@ import { piGitExtensionSource } from "./pi-git-extension.mjs";
 import { piFigmaExtensionSource } from "./pi-figma-extension.mjs";
 import { piViewExtensionSource } from "./pi-view-extension.mjs";
 import { piFilesExtensionSource } from "./pi-files-extension.mjs";
+import { piContentfulExtensionSource } from "./pi-contentful-extension.mjs";
 import { RepoCache } from "../../extensions/github/repo-cache.mjs";
 import { trim } from "../core/redact.mjs";
 
@@ -222,9 +223,11 @@ export class PiRuntime {
     job.piSessionDir = job.piSessionDir || resolve(jobDir, ".pi-sessions");
     job.figmaArtifactsDir = job.figmaArtifactsDir || resolve(jobDir, "figma-artifacts");
     job.jiraArtifactsDir = job.jiraArtifactsDir || resolve(jobDir, "jira-artifacts");
+    job.contentfulArtifactsDir = job.contentfulArtifactsDir || resolve(jobDir, "contentful-artifacts");
     await mkdir(job.piSessionDir, { recursive: true });
     await mkdir(job.figmaArtifactsDir, { recursive: true });
     await mkdir(job.jiraArtifactsDir, { recursive: true });
+    await mkdir(job.contentfulArtifactsDir, { recursive: true });
 
     // Clone configured repos into per-job worktrees
     let repoToken = null;
@@ -286,6 +289,10 @@ export class PiRuntime {
     }, {
       path: `${VM_WORKSPACE}/jira-artifacts`,
       driver: createHostDirBackend({ hostPath: job.jiraArtifactsDir, readOnly: false }),
+      readOnly: false,
+    }, {
+      path: `${VM_WORKSPACE}/contentful-artifacts`,
+      driver: createHostDirBackend({ hostPath: job.contentfulArtifactsDir, readOnly: false }),
       readOnly: false,
     }, {
       // Back-compat for the original Jira attachment downloader path.
@@ -377,6 +384,9 @@ export class PiRuntime {
     // Reliable filesystem inspection tools that avoid shell/brush quirks
     await vm.writeFile(`${extDir}/files-tools.js`, piFilesExtensionSource());
 
+    // Contentful staging/data model inspection tools
+    await vm.writeFile(`${extDir}/contentful-tools.js`, piContentfulExtensionSource());
+
     // Build Jira env vars for the extension
     const jiraEnv = {};
     const jiraTokens = this._loadJiraTokens();
@@ -425,7 +435,7 @@ export class PiRuntime {
     });
     const sessionId = created.sessionId;
     console.log("[pi:agentos] session:", sessionId, "model:", defaultProvider + "/" + defaultModel);
-    await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, thinkingLevel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_list_attachments", "jira_download_attachment", "jira_search", "jira_count", "jira_board_jql", "jira_board_count", "figma_get_file", "figma_find_nodes", "figma_get_node_subtree", "figma_inspect_node", "figma_export_assets", "view_image", "list_directory", "find_files", "figma_get_components", "figma_get_styles", "figma_get_comments", "figma_get_images", "figma_search", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
+    await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, thinkingLevel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_list_attachments", "jira_download_attachment", "jira_search", "jira_count", "jira_board_jql", "jira_board_count", "figma_get_file", "figma_find_nodes", "figma_get_node_subtree", "figma_inspect_node", "figma_export_assets", "view_image", "list_directory", "find_files", "figma_get_components", "figma_get_styles", "figma_get_comments", "figma_get_images", "figma_search", "contentful_http_get", "contentful_list_content_types", "contentful_get_content_type", "contentful_list_entries", "contentful_get_entry", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
 
     // Create live session first so the event handler can reference it
     const live = new LiveSession({ vm, sessionId, unsub: null, runtime: "agentos", model: defaultProvider + "/" + defaultModel, thinkingLevel });

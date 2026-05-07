@@ -16,6 +16,7 @@ import { envExtension } from "../extensions/env/index.mjs";
 import { browserExtension } from "../extensions/browser/index.mjs";
 import { gitExtension } from "../extensions/git/index.mjs";
 import { figmaExtension } from "../extensions/figma/index.mjs";
+import { contentfulExtension } from "../extensions/contentful/index.mjs";
 
 const config = await loadConfig();
 const extensions = loadExtensions([
@@ -26,6 +27,7 @@ const extensions = loadExtensions([
   envExtension(),
   browserExtension(),
   figmaExtension(),
+  contentfulExtension(),
 ]);
 
 const store = new JobStore(config);

@@ -95,5 +95,12 @@ export async function loadConfig() {
       teamId: process.env.FIGMA_TEAM_ID || "",
       outputDir: process.env.FIGMA_OUTPUT_DIR || "figma-assets",
     },
+    contentful: {
+      spaceId: process.env.CONTENTFUL_SPACE_ID || "",
+      environment: process.env.CONTENTFUL_ENVIRONMENT || "staging",
+      managementToken: process.env.CONTENTFUL_MANAGEMENT_TOKEN || "",
+      deliveryToken: process.env.CONTENTFUL_DELIVERY_TOKEN || "",
+      previewToken: process.env.CONTENTFUL_PREVIEW_TOKEN || "",
+    },
   };
 }

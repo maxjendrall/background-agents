@@ -1,7 +1,7 @@
 const PATTERNS = [
   /Bearer\s+[A-Za-z0-9._\-+/=]+/gi,
   /Basic\s+[A-Za-z0-9._\-+/=]+/gi,
-  /((?:JIRA|GITHUB|FIGMA|OPENAI|ANTHROPIC|AGENT|AUTH|ACCESS|REFRESH)[A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD)?)=([^\s\n]+)/gi,
+  /((?:JIRA|GITHUB|FIGMA|CONTENTFUL|OPENAI|ANTHROPIC|AGENT|AUTH|ACCESS|REFRESH)[A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD)?)=([^\s\n]+)/gi,
   /("(?:access_token|refresh_token|api_token|token|secret|password)"\s*:\s*")[^"]+("?)/gi,
   /gh[pousr]_[A-Za-z0-9_]+/g,
   /sk-[A-Za-z0-9_\-]+/g,

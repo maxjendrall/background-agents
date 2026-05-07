@@ -68,6 +68,7 @@ export class JobRunner {
       ...(job.piSessionDir ? { piSessionDir: job.piSessionDir } : {}),
       ...(job.figmaArtifactsDir ? { figmaArtifactsDir: job.figmaArtifactsDir } : {}),
       ...(job.jiraArtifactsDir ? { jiraArtifactsDir: job.jiraArtifactsDir } : {}),
+      ...(job.contentfulArtifactsDir ? { contentfulArtifactsDir: job.contentfulArtifactsDir } : {}),
     });
     await this.store.event(job.id, "job.completed", { length: output.length });
 

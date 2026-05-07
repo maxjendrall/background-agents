@@ -41,6 +41,11 @@ Jira tools (native):
 - jira_get_issue, jira_get_comments, jira_list_attachments, jira_download_attachment, jira_search, jira_count, jira_board_jql, jira_board_count
 - jira_add_comment, jira_list_transitions, jira_transition_issue
 - Prefer native Jira tools over node /usr/local/bin/agentos-jira ... CLI shims.
+
+Contentful tools (native, read-only):
+- contentful_list_content_types, contentful_get_content_type: inspect staging data models.
+- contentful_list_entries, contentful_get_entry: inspect staging entries via preview/delivery/management APIs.
+- contentful_http_get: ad-hoc GET against configured Contentful space/environment.
 `;
   }
 
