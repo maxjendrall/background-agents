@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { basename, join, resolve } from "node:path";
 
 const FIGMA_API = "https://api.figma.com/v1";
-const INLINE_IMAGE_MAX_BYTES = 2_500_000;
+const INLINE_IMAGE_MAX_BYTES = 4_000_000;
 
 function resolveValue(val) {
   if (typeof val === "string" && val.startsWith("ENV:")) return process.env[val.slice(4)] || "";
@@ -135,8 +135,8 @@ export class FigmaClient {
     const vmPath = this.vmPath(fp);
     return { content: textContent(`# ${node.name} (${node.type})\nNode id: \`${node.id}\`\nSource: ${source}\nFull subtree JSON saved at: ${vmPath}\n\n\`\`\`json\n${JSON.stringify(subtree, null, 2)}\n\`\`\``), details: { node: subtree, jsonPath: vmPath } };
   }
-  async exportAssets(fileKey, nodeIds, format = "png", scale = 2) {
-    const key = parseFileKey(fileKey); const ids = nodeIds.map(parseNodeId); const fmt = ["png","svg","pdf","jpg"].includes(format) ? format : "png"; const sc = Math.max(0.01, Math.min(4, Number(scale) || 2));
+  async exportAssets(fileKey, nodeIds, format = "png", scale = 4) {
+    const key = parseFileKey(fileKey); const ids = nodeIds.map(parseNodeId); const fmt = ["png","svg","pdf","jpg"].includes(format) ? format : "png"; const sc = Math.max(0.01, Math.min(4, Number(scale) || 4));
     const nodeData = await this.fetch(`/files/${key}/nodes?ids=${encodeURIComponent(ids.join(","))}`);
     const missing = new Set(ids.filter((id) => !nodeData.nodes?.[id]?.document)); const exportableIds = ids.filter((id) => !missing.has(id));
     const data = exportableIds.length ? await this.fetch(`/images/${key}?ids=${encodeURIComponent(exportableIds.join(","))}&format=${fmt}&scale=${sc}`) : { images: {} };
@@ -149,14 +149,19 @@ export class FigmaClient {
     }
     let inlineImage = null;
     if (saved.length && ['png','jpg','svg'].includes(fmt)) {
-      const previewScale = Math.min(sc, 0.35);
-      try {
-        const pData = await this.fetch(`/images/${key}?ids=${encodeURIComponent(saved[0].nodeId)}&format=${fmt}&scale=${previewScale}`);
-        const pUrl = pData.images?.[saved[0].nodeId];
-        if (pUrl) { const pRes = await fetch(pUrl); const pBuf = Buffer.from(await pRes.arrayBuffer()); if (pBuf.length <= INLINE_IMAGE_MAX_BYTES) inlineImage = { type: 'image', mimeType: imageMime(fmt), data: pBuf.toString('base64') }; }
-      } catch {}
+      const previewScales = [...new Set([sc, 3, 2, 1].filter((s) => s > 0 && s <= sc))];
+      for (const previewScale of previewScales) {
+        try {
+          const pData = await this.fetch(`/images/${key}?ids=${encodeURIComponent(saved[0].nodeId)}&format=${fmt}&scale=${previewScale}`);
+          const pUrl = pData.images?.[saved[0].nodeId];
+          if (!pUrl) continue;
+          const pRes = await fetch(pUrl);
+          const pBuf = Buffer.from(await pRes.arrayBuffer());
+          if (pBuf.length <= INLINE_IMAGE_MAX_BYTES) { inlineImage = { type: 'image', mimeType: imageMime(fmt), data: pBuf.toString('base64') }; break; }
+        } catch {}
+      }
     }
-    const text = [saved.length ? `## Exported (${saved.length})` : `## Exported`, ...saved.map((s) => `- \`${s.nodeId}\` -> \`${s.path}\` (${s.bytes} bytes)`), failed.length ? `\n## Failed (${failed.length})` : '', ...failed.map((f) => `- \`${f.nodeId}\`: ${f.reason}`), inlineImage ? `\nInline preview attached for ${saved[0].nodeId}. Full file saved on disk.` : saved.length ? `\nUse view_image on the saved path to inspect an exported image.` : ''].filter(Boolean).join('\n');
+    const text = [saved.length ? `## Exported (${saved.length})` : `## Exported`, ...saved.map((s) => `- \`${s.nodeId}\` -> \`${s.path}\` (${s.bytes} bytes)`), failed.length ? `\n## Failed (${failed.length})` : '', ...failed.map((f) => `- \`${f.nodeId}\`: ${f.reason}`), inlineImage ? `\nHigh-resolution inline preview attached for ${saved[0].nodeId}. Full ${sc}x export saved on disk.` : saved.length ? `\nFull ${sc}x export saved on disk. Use view_image on the saved path if it is small enough to inline.` : ''].filter(Boolean).join('\n');
     return { content: inlineImage ? [...textContent(text), inlineImage] : textContent(text), details: { saved, failed, format: fmt, scale: sc, outputDir: this.dirs().vm } };
   }
   async getComments(fileKey) { const data = await this.fetch(`/files/${parseFileKey(fileKey)}/comments`); return data.comments ?? []; }

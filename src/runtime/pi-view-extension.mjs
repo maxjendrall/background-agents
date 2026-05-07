@@ -3,7 +3,7 @@ export function piViewExtensionSource() {
 module.exports = function(pi) {
   const fs = require("fs");
   const path = require("path");
-  const MAX_INLINE_BYTES = 3_000_000;
+  const MAX_INLINE_BYTES = 4_000_000;
   function mimeFor(file) {
     const ext = path.extname(file).toLowerCase();
     if (ext === ".png") return "image/png";

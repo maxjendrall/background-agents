@@ -26,7 +26,7 @@ export function contentfulExtension() {
             execute: () => contentful.apiHelp(),
           }),
           http_get: hostTool({
-            description: "Read-only GET against Contentful APIs, hard-restricted to staging. Prefer typed tools first. Path is relative to /spaces/{space}/environments/staging; call contentful_api_help for allowed paths/examples.",
+            description: "Read-only Contentful GET, staging only. Prefer typed tools first. Path is relative to /spaces/{space}/environments/staging.",
             timeout: CONTENTFUL_TIMEOUT,
             inputSchema: z.object({ api: Api.default("management"), path: z.string().min(1), query: JsonQuery, saveAs: z.string().optional() }),
             execute: (input) => contentful.httpGet(input),
