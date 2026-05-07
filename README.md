@@ -24,7 +24,7 @@ flowchart TD
   User[User / Browser / Jira] --> Hono[Hono HTTP server]
   Hono --> Auth[Auth + CORS]
   Hono --> Routes[API routes + extension routes]
-  Hono --> StaticUI[/ui + /app static assets]
+  Hono --> StaticUI["/ui + /app static assets"]
 
   Routes --> Store[JobStore\nfile-backed job.json + events.jsonl]
   Routes --> Runner[JobRunner\nqueue + cancellation + concurrency]
@@ -45,7 +45,7 @@ flowchart TD
   HostTools --> FS[Host artifacts/worktrees]
 
   Store --> SSE[SSE event stream]
-  SSE --> App[/app React chat UI]
+  SSE --> App["/app React chat UI"]
   Store --> JobsAPI[Jobs API]
   JobsAPI --> App
 ```
