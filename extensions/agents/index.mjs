@@ -36,13 +36,13 @@ function jiraPrompt({ parentJobId, issueKey, instructions }) {
     `\n## Required workflow`,
     `1. Use jira_get_issue and jira_get_comments to inspect ${issueKey}.`,
     `2. If attachments, Figma links, Contentful data, or repository context are relevant, inspect them yourself.`,
-    `3. Add an initial jira_add_comment with your plan, current blocker, or clarification question before substantial implementation.`,
-    `4. If the task is clear, implement it with the smallest safe change.`,
-    `5. If you change code, commit and push, then open/update a PR when appropriate.`,
-    `6. Before finishing, add a final jira_add_comment summarizing changes, tests run, PR/status, and any blockers.`,
+    `3. If the task is clear, implement it with the smallest safe change.`,
+    `4. If you change code, use native git_commit, git_push, and gh_pr_create/gh_pr_comment as appropriate.`,
+    `5. At the end of the turn, add exactly one jira_add_comment summarizing changes, tests run, PR/status, and any blockers or clarification needed.`,
     `\n## Rules`,
     `- Do not rely on the parent agent for context or results.`,
-    `- Do not finish a Jira ticket turn without at least one Jira comment.`,
+    `- Do not add progress/acknowledgement comments while still working; comment only once at the end of the turn.`,
+    `- If the latest event is your own previous AI comment with no new external feedback, do not comment again; summarize briefly and stop.`,
     `- Use native tools, especially Jira/Git/GitHub/Figma/Contentful tools, instead of CLI shims.`,
   ].filter(Boolean).join("\n");
 }

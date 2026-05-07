@@ -46,6 +46,7 @@ export async function loadConfig() {
       maxConcurrency: int("MAX_CONCURRENCY", 10),
       agentSpawnLimit: int("AGENT_SPAWN_LIMIT", 25),
       agentBootConcurrency: int("AGENT_BOOT_CONCURRENCY", 1),
+      agentBootTimeoutMs: int("AGENT_BOOT_TIMEOUT_MS", 120_000),
       mode: process.env.RUNTIME || "agentos", // "agentos" or "direct"
     },
     workspace: {

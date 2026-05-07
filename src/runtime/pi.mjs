@@ -28,6 +28,17 @@ function effectiveThinkingLevel(job, config) {
   return job.thinkingLevel || job.thinking || config.runtime.thinkingLevel || "xhigh";
 }
 
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      timer.unref?.();
+    }),
+  ]);
+}
+
 // --- Event extractors (ACP format from Agent OS) ---
 function acpText(event) {
   const u = event?.params?.update;
@@ -368,10 +379,17 @@ export class PiRuntime {
     };
     this._bootReleases.set(job.id, releaseBootOnce);
 
+    let vm;
+    let liveCreated = false;
     try {
     await onEvent("agent.boot_start", { active: this._bootActive, concurrency: bootLimit });
     const toolKits = collectToolkits({ config: this.config, job, processes: this.processes, store: this.store, runner: this.runner, runtime: this }, this.extensions);
-    const vm = await AgentOs.create({ software: [common, pi], mounts, toolKits, additionalInstructions: systemPrompt(this.mode) });
+    const bootTimeoutMs = this.config.runtime.agentBootTimeoutMs || 120_000;
+    vm = await withTimeout(
+      AgentOs.create({ software: [common, pi], mounts, toolKits, additionalInstructions: systemPrompt(this.mode) }),
+      bootTimeoutMs,
+      `AgentOS VM boot for ${job.id}`,
+    );
 
     // Write agents.md into workspace
     await vm.mkdir(VM_WORKSPACE, { recursive: true });
@@ -471,7 +489,7 @@ export class PiRuntime {
       } catch (e) { console.log("[pi] GitHub token error:", e.message); }
     }
 
-    const created = await vm.createSession("pi", {
+    const created = await withTimeout(vm.createSession("pi", {
       cwd: VM_WORKSPACE,
       env: {
         HOME: VM_HOME,
@@ -488,7 +506,7 @@ export class PiRuntime {
         ...githubEnv,
       },
       additionalInstructions: systemPrompt(this.mode),
-    });
+    }), bootTimeoutMs, `Pi session boot for ${job.id}`);
     const sessionId = created.sessionId;
     console.log("[pi:agentos] session:", sessionId, "model:", defaultProvider + "/" + defaultModel);
     await onEvent("agent.session_created", { sessionId, model: defaultProvider + "/" + defaultModel, thinkingLevel, runtime: "agentos", tools: ["read", "bash", "edit", "write", "grep", "jira_get_issue", "jira_get_comments", "jira_list_attachments", "jira_download_attachment", "jira_search", "jira_count", "jira_board_jql", "jira_board_count", "figma_get_file", "figma_find_nodes", "figma_get_node_subtree", "figma_inspect_node", "figma_export_assets", "view_image", "list_directory", "find_files", "figma_get_components", "figma_get_styles", "figma_get_comments", "figma_get_images", "figma_search", "contentful_api_help", "contentful_http_get", "contentful_list_content_types", "contentful_get_content_type", "contentful_list_entries", "contentful_get_entry", "start_jira_agent", "start_agent", "jira_add_comment", "jira_list_transitions", "jira_transition_issue", ...toolKits.map((k) => k.name)] });
@@ -498,6 +516,7 @@ export class PiRuntime {
     const live = new LiveSession({ vm, sessionId, unsub: null, runtime: "agentos", model: defaultProvider + "/" + defaultModel, thinkingLevel });
     live.onEvent = onEvent;
     this.sessions.set(job.id, live);
+    liveCreated = true;
 
     // Event handler uses live.onEvent so follow-ups get events routed correctly
     const unsub = vm.onSessionEvent(sessionId, (event) => {
@@ -516,6 +535,11 @@ export class PiRuntime {
     console.log("[pi:agentos] done, text:", result.text?.length || 0);
     if (result.response?.error) throw new Error(result.response.error.message || JSON.stringify(result.response.error));
     return { sessionId, text: result.text || "" };
+    } catch (e) {
+      if (!liveCreated && vm) {
+        try { await vm.dispose(); } catch {}
+      }
+      throw e;
     } finally {
       releaseBootOnce();
     }
