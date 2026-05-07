@@ -28,15 +28,31 @@ function effectiveThinkingLevel(job, config) {
   return job.thinkingLevel || job.thinking || config.runtime.thinkingLevel || "xhigh";
 }
 
-function withTimeout(promise, ms, label) {
+function withTimeout(promise, ms, label, onLateResolve) {
   let timer;
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-      timer.unref?.();
-    }),
-  ]);
+  let settled = false;
+  return new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    timer.unref?.();
+    promise.then((value) => {
+      if (settled) {
+        try { onLateResolve?.(value); } catch {}
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    }, (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 // --- Event extractors (ACP format from Agent OS) ---
@@ -389,6 +405,7 @@ export class PiRuntime {
       AgentOs.create({ software: [common, pi], mounts, toolKits, additionalInstructions: systemPrompt(this.mode) }),
       bootTimeoutMs,
       `AgentOS VM boot for ${job.id}`,
+      (lateVm) => lateVm?.dispose?.().catch?.(() => {}),
     );
 
     // Write agents.md into workspace

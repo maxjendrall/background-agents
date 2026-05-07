@@ -259,9 +259,10 @@ POST /api/jira/search
 ```txt
 AGENT_MODEL=openai-codex/gpt-5.5
 AGENT_THINKING=xhigh
-MAX_CONCURRENCY=3
-AGENT_BOOT_CONCURRENCY=1
-AGENT_BOOT_TIMEOUT_MS=120000
+MAX_CONCURRENCY=10
+AGENT_BOOT_CONCURRENCY=10
+AGENT_BOOT_TIMEOUT_MS=45000
+AGENT_BOOT_RETRIES=3
 AGENT_SPAWN_LIMIT=25
 
 JIRA_TRIGGER_MENTION=@agent
@@ -273,7 +274,7 @@ CONTENTFUL_ENVIRONMENT=staging
 
 Operational notes:
 
-- Keep `AGENT_BOOT_CONCURRENCY` low; AgentOS boot is the fragile/expensive phase.
+- `AGENT_BOOT_TIMEOUT_MS` and `AGENT_BOOT_RETRIES` prevent AgentOS startup from holding queue slots forever; stalled boots are disposed/requeued automatically.
 - Raise `MAX_CONCURRENCY` only if the server has enough memory/CPU and jobs are mostly I/O bound.
 - Add swap on small servers if many agents may build/test at the same time.
 - Large historical event logs can be compacted with:

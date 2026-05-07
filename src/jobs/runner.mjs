@@ -1,7 +1,13 @@
 import { errMsg } from "../core/redact.mjs";
 import { JobEventSink } from "./event-sink.mjs";
+import { resolve } from "node:path";
 
 function now() { return new Date().toISOString(); }
+
+function isRetryableBootError(e) {
+  const msg = errMsg(e);
+  return /AgentOS VM boot|Pi session boot|boot .*timed out|session .*timed out/i.test(msg);
+}
 
 export class JobRunner {
   constructor({ config, store, runtime, onComplete }) {
@@ -61,6 +67,28 @@ export class JobRunner {
       this.#run(job, run)
         .catch(async (e) => {
           if (run.cancelled || this.store.get(job.id)?.status === "cancelled") return;
+          if (isRetryableBootError(e)) {
+            const current = this.store.get(job.id);
+            const attempts = (current?.bootRetryCount || 0) + 1;
+            const max = this.config.runtime.agentBootRetries || 3;
+            if (attempts <= max) {
+              await this.store.update(job.id, {
+                status: "queued",
+                error: null,
+                completedAt: null,
+                bootRetryCount: attempts,
+                ...(current?.workspacePath ? { piSessionDir: resolve(current.workspacePath, `.pi-sessions-retry-${attempts}-${Date.now()}`) } : {}),
+              });
+              await this.store.event(job.id, "job.requeued", {
+                reason: "agent_boot_timeout",
+                attempt: attempts,
+                max,
+                error: errMsg(e),
+              });
+              this.queue.push(job.id);
+              return;
+            }
+          }
           await this.store.update(job.id, { status: "failed", error: errMsg(e), completedAt: now() });
           await this.store.event(job.id, "job.failed", { error: errMsg(e) });
         })
@@ -103,6 +131,7 @@ export class JobRunner {
       status: "completed",
       result: output,
       completedAt: now(),
+      bootRetryCount: 0,
       ...(job.piSessionFile ? { piSessionFile: job.piSessionFile } : {}),
       ...(job.piSessionDir ? { piSessionDir: job.piSessionDir } : {}),
       ...(job.figmaArtifactsDir ? { figmaArtifactsDir: job.figmaArtifactsDir } : {}),
