@@ -29,6 +29,6 @@
   },
   "rootfs": {
     "label": "gondolin-root",
-    "sizeMb": 3072
+    "sizeMb": 16384
   }
 }
