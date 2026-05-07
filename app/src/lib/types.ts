@@ -44,6 +44,11 @@ export interface Health {
 
 export type ToolStatus = "pending" | "running" | "in_progress" | "completed" | "failed";
 
+export interface ToolImage {
+  mimeType: string;
+  data: string; // base64
+}
+
 export interface ToolCall {
   id: string;
   name: string;
@@ -51,6 +56,8 @@ export interface ToolCall {
   input?: any;
   args?: any;
   outputText?: string;
+  outputImages?: ToolImage[];
+  outputDetails?: any;
   result?: string;
   ts?: string;
 }

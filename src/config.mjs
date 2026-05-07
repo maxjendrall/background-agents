@@ -42,7 +42,7 @@ export async function loadConfig() {
     runtime: {
       model: process.env.AGENT_MODEL || "claude-sonnet-4-6",
       thinkingLevel: process.env.AGENT_THINKING || "xhigh",
-      maxConcurrency: int("MAX_CONCURRENCY", 2),
+      maxConcurrency: int("MAX_CONCURRENCY", 10),
       mode: process.env.RUNTIME || "agentos", // "agentos" or "direct"
     },
     workspace: {

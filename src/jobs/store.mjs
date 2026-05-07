@@ -2,7 +2,7 @@ import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promise
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { id } from "../core/ids.mjs";
-import { redact } from "../core/redact.mjs";
+import { redactData } from "../core/redact.mjs";
 
 function now() { return new Date().toISOString(); }
 
@@ -72,7 +72,7 @@ export class JobStore {
   }
 
   async event(jobId, type, data = {}) {
-    const evt = { id: id("evt"), jobId, type, ts: now(), data: typeof data === "string" ? redact(data) : data };
+    const evt = { id: id("evt"), jobId, type, ts: now(), data: redactData(data) };
     await appendFile(resolve(this.config.paths.jobs, jobId, "events.jsonl"), JSON.stringify(evt) + "\n", "utf8");
     this.#emit(jobId, evt);
     return evt;

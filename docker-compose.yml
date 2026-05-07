@@ -15,7 +15,7 @@ services:
       - AGENT_MODEL=${AGENT_MODEL:-openai-codex/gpt-5.4}
       - WORKSPACE_PATH=/workspace
       - WORKSPACE_READ_ONLY=${WORKSPACE_READ_ONLY:-false}
-      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-2}
+      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-10}
       - JIRA_BASE_URL=${JIRA_BASE_URL:-}
       - JIRA_EMAIL=${JIRA_EMAIL:-}
       - JIRA_API_TOKEN=${JIRA_API_TOKEN:-}

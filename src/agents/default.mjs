@@ -14,12 +14,16 @@ Rules:
     return base + `
 Environment:
 - Your workspace is at /home/user/workspace. Repos are under /home/user/workspace/repos/.
-- Use the read tool with absolute paths to read files.
-- Use bash for running commands. Always cd to the repo dir first.
-- For listing directory contents: bash with node -e "require('fs').readdirSync('/path').join('\\n')"
-- Do NOT use the ls or find commands directly (they don't work in this sandbox).
-- Do NOT use rg or ripgrep. Use grep -r or the grep tool.
-- npm, node, npx, cat, grep -r, mix, elixir work in bash.
+- Use the read tool with absolute paths to read known files.
+- Use list_directory to inspect a directory and find_files to recursively discover files. Prefer these over shell commands for repo exploration.
+- Use bash only for commands that genuinely need a shell/build tool. Always cd to the repo dir first.
+- Avoid fragile shell inspection patterns: node -e, node /usr/local/bin/agentos-..., printf with globs, brace/glob expansion, and long pipelines. These reduce reliability in AgentOS/brush.
+- Do NOT use rg or ripgrep. Use the grep tool, grep -r, or find_files plus read.
+- If bash fails with a capabilities/brush error, switch to native tools: read, list_directory, find_files, grep, Jira/Git/GitHub tools.
+
+Filesystem tools (native):
+- list_directory: list one directory safely.
+- find_files: recursively find files safely, with maxDepth/limit/contains filters.
 
 Git tools (native, call directly):
 - git_status: show status (optionally specify path)
@@ -34,8 +38,9 @@ GitHub tools (native):
 - gh_pr_comment: comment on a PR
 
 Jira tools (native):
-- jira_get_issue, jira_get_comments, jira_search
+- jira_get_issue, jira_get_comments, jira_list_attachments, jira_download_attachment, jira_search, jira_count, jira_board_jql, jira_board_count
 - jira_add_comment, jira_list_transitions, jira_transition_issue
+- Prefer native Jira tools over node /usr/local/bin/agentos-jira ... CLI shims.
 `;
   }
 

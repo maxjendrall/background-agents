@@ -24,7 +24,9 @@ export interface SidebarProps {
   onRefresh: () => void;
 }
 
-export function Sidebar({ jobs, activeJobId, health, onSelect, onNew, onRefresh }: SidebarProps) {
+export const Sidebar = React.memo(SidebarImpl);
+
+function SidebarImpl({ jobs, activeJobId, health, onSelect, onNew, onRefresh }: SidebarProps) {
   return (
     <aside className="hidden md:flex w-[300px] shrink-0 flex-col border-r border-border bg-card/40 backdrop-blur-sm h-full">
       {/* Header */}
@@ -74,9 +76,14 @@ export function Sidebar({ jobs, activeJobId, health, onSelect, onNew, onRefresh 
             {jobs.map((j) => (
               <SessionItem
                 key={j.id}
-                job={j}
+                jobId={j.id}
+                status={j.status}
+                title={j.title}
+                issueKey={j.issueKey}
+                model={j.model}
+                createdAt={j.createdAt}
                 active={j.id === activeJobId}
-                onClick={() => onSelect(j.id)}
+                onSelect={onSelect}
               />
             ))}
           </div>
@@ -108,10 +115,37 @@ export function Sidebar({ jobs, activeJobId, health, onSelect, onNew, onRefresh 
   );
 }
 
-function SessionItem({ job, active, onClick }: { job: Job; active: boolean; onClick: () => void }) {
+interface SessionItemProps {
+  jobId: string;
+  status: string;
+  title: string;
+  issueKey: string | null | undefined;
+  model: string | null | undefined;
+  createdAt: string;
+  active: boolean;
+  onSelect: (id: string) => void;
+}
+
+const SessionItem = React.memo(function SessionItem({
+  jobId,
+  status,
+  title,
+  issueKey,
+  model,
+  createdAt,
+  active,
+  onSelect,
+}: SessionItemProps) {
+  // Re-evaluate the ago() label periodically without forcing parent re-renders.
+  const [, tick] = React.useReducer((x: number) => x + 1, 0);
+  React.useEffect(() => {
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <button
-      onClick={onClick}
+      onClick={() => onSelect(jobId)}
       className={cn(
         "group w-full text-left rounded-md px-2.5 py-2 transition-all",
         "hover:bg-accent/40",
@@ -119,24 +153,22 @@ function SessionItem({ job, active, onClick }: { job: Job; active: boolean; onCl
       )}
     >
       <div className="flex items-center gap-2 min-w-0">
-        <StatusDot status={job.status} />
+        <StatusDot status={status} />
         <span className="flex-1 truncate text-[13px] font-medium">
-          {job.title || job.id.slice(4, 16)}
+          {title || jobId.slice(4, 16)}
         </span>
         <span className="shrink-0 text-[10.5px] text-muted-foreground tabular-nums">
-          {ago(job.createdAt)}
+          {ago(createdAt)}
         </span>
       </div>
       <div className="mt-0.5 ml-5 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
-        <span className="capitalize">{job.status}</span>
-        {job.issueKey && <span>· {job.issueKey}</span>}
-        {job.model && (
-          <span className="font-mono truncate">· {job.model.split("/").pop()}</span>
-        )}
+        <span className="capitalize">{status}</span>
+        {issueKey && <span>· {issueKey}</span>}
+        {model && <span className="font-mono truncate">· {model.split("/").pop()}</span>}
       </div>
     </button>
   );
-}
+});
 
 function StatusDot({ status }: { status: string }) {
   if (status === "running") {

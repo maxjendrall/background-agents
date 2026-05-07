@@ -29,7 +29,7 @@ export const MessageContent = ({ className, from, ...props }: MessageContentProp
     className={cn(
       "flex flex-col gap-2 overflow-hidden",
       from === "user"
-        ? "rounded-2xl rounded-br-sm bg-primary text-primary-foreground px-4 py-3 max-w-[80%] shadow-sm"
+        ? "rounded-2xl rounded-br-sm bg-primary text-primary-foreground px-4 py-3 max-w-[68%] shadow-sm"
         : from === "system"
           ? "text-muted-foreground text-sm italic"
           : "w-full",

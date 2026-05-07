@@ -3,26 +3,18 @@ import type { ChatMessage, ChatPart } from "@/lib/types";
 import { Message, MessageAvatar, MessageContent } from "@/components/ai-elements/message";
 import { Response } from "@/components/ai-elements/response";
 import { Reasoning } from "@/components/ai-elements/reasoning";
-import {
-  Tool,
-  ToolHeader,
-  ToolContent,
-  ToolInput,
-  ToolOutput,
-  summarizeArgs,
-} from "@/components/ai-elements/tool";
+import { ToolCard } from "@/components/ai-elements/tool";
 import { Loader } from "@/components/ai-elements/loader";
 import { cn } from "@/lib/utils";
 import { AlertTriangleIcon, InfoIcon, OctagonAlertIcon } from "lucide-react";
 
-export function ChatTurn({ message }: { message: ChatMessage }) {
+function ChatTurnImpl({ message }: { message: ChatMessage }) {
   if (message.role === "user") {
+    const text = message.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
     return (
       <Message from="user">
         <MessageContent from="user">
-          <div className="whitespace-pre-wrap leading-6 text-[14.5px]">
-            {message.parts.map((p, i) => (p.kind === "text" ? p.text : "")).join("")}
-          </div>
+          <CollapsibleUserText text={text} />
         </MessageContent>
         <MessageAvatar from="user" />
       </Message>
@@ -55,6 +47,41 @@ export function ChatTurn({ message }: { message: ChatMessage }) {
   );
 }
 
+/**
+ * Custom equality:
+ *   - if both messages are "done" with identical parts identity, skip render.
+ *   - assistant messages that are still streaming need to re-render whenever any
+ *     of their parts changes (text, tool status/output, thinking).
+ *
+ * Note: `eventsToMessages` mutates parts in place across rebuilds (it stores them
+ * in maps + arrays from a fresh closure). So we compare a structural fingerprint
+ * rather than reference identity.
+ */
+function fingerprintMessage(m: ChatMessage): string {
+  const fp: string[] = [m.id, m.role, m.status || "", String(m.parts.length)];
+  for (const p of m.parts) {
+    if (p.kind === "text") fp.push("t" + (p.text?.length ?? 0));
+    else if (p.kind === "thinking") fp.push("h" + (p.thinking?.length ?? 0));
+    else if (p.kind === "tool" && p.tool) {
+      const t = p.tool;
+      fp.push(
+        "k" + t.id + ":" + t.status +
+        ":" + (t.outputText?.length ?? 0) +
+        ":" + (t.outputImages?.length ?? 0) +
+        ":" + (t.input ? Object.keys(t.input).length : 0),
+      );
+    } else if (p.kind === "system" && p.system) {
+      fp.push("s" + p.system.label);
+    }
+  }
+  return fp.join("|");
+}
+
+export const ChatTurn = React.memo(ChatTurnImpl, (prev, next) => {
+  if (prev.message === next.message) return true;
+  return fingerprintMessage(prev.message) === fingerprintMessage(next.message);
+});
+
 function PartRenderer({ part, streaming }: { part: ChatPart; streaming?: boolean }) {
   if (part.kind === "text") {
     if (!part.text && !streaming) return null;
@@ -64,30 +91,59 @@ function PartRenderer({ part, streaming }: { part: ChatPart; streaming?: boolean
     return <Reasoning isStreaming={streaming}>{part.thinking}</Reasoning>;
   }
   if (part.kind === "tool") {
-    const t = part.tool!;
-    const args = t.input ?? t.args;
-    const summary = summarizeArgs(args);
-    const output = t.outputText || t.result || "";
-    const errored = t.status === "failed";
-    return (
-      <Tool status={t.status} defaultOpen={errored}>
-        <ToolHeader type={t.name} status={t.status} argsSummary={summary} />
-        <ToolContent>
-          <ToolInput input={args} />
-          <ToolOutput output={output} errored={errored} />
-          {!output && t.status !== "completed" && t.status !== "failed" && (
-            <div className="px-2 py-1 text-[11.5px] text-muted-foreground italic">
-              awaiting output…
-            </div>
-          )}
-        </ToolContent>
-      </Tool>
-    );
+    return <ToolCard tool={part.tool!} />;
   }
   if (part.kind === "system" && part.system) {
     return <SystemBanner system={part.system} inline />;
   }
   return null;
+}
+
+/**
+ * For Jira-triggered runs the user "message" is the whole prompt the server built
+ * from the issue + comments + rules — too long to dump verbatim. Show only the head
+ * by default with an inline expand control.
+ */
+function CollapsibleUserText({ text }: { text: string }) {
+  const [open, setOpen] = React.useState(false);
+  // Strip the "[CONTEXT] ... [NEW MESSAGE] <real>" prefix so collapsed view doesn't show server scaffolding.
+  let displayText = text;
+  const newMsgIdx = text.indexOf("[NEW MESSAGE]");
+  if (text.startsWith("[CONTEXT]") && newMsgIdx >= 0) {
+    displayText = text.slice(newMsgIdx + "[NEW MESSAGE]".length).trimStart();
+  }
+  const lines = displayText.split("\n");
+  const tooLong = lines.length > 12 || displayText.length > 900;
+  if (!tooLong) {
+    return (
+      <div className="whitespace-pre-wrap leading-6 text-[14.5px]">{displayText}</div>
+    );
+  }
+  // Look for the "## What just happened" block — actual user-intent for Jira runs.
+  let head = "";
+  const m = displayText.match(/##\s+What just happened[^\n]*\n+([\s\S]*?)(?:\n+##\s|$)/);
+  if (m) {
+    head = m[1].trim();
+  } else {
+    head = lines.slice(0, 6).join("\n");
+  }
+  return (
+    <div className="space-y-2">
+      <div className={cn("whitespace-pre-wrap leading-6 text-[14.5px]", !open && "max-h-[18em] overflow-hidden relative")}>
+        {open ? displayText : head}
+      </div>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "text-[11px] font-medium uppercase tracking-wide rounded-md px-2 py-1 transition-colors",
+          "bg-primary-foreground/10 hover:bg-primary-foreground/20 text-primary-foreground/80",
+        )}
+      >
+        {open ? "Show less" : `Show full prompt (${lines.length} lines)`}
+      </button>
+    </div>
+  );
 }
 
 function SystemBanner({

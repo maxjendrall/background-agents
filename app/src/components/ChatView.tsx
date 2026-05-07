@@ -161,14 +161,39 @@ export function ChatView({ jobId, health }: ChatViewProps) {
   const [followUp, setFollowUp] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
 
-  // Load job + open SSE
+  // Load job + open SSE.
+  // Streaming events arrive faster than 60Hz; we batch them into a buffer and flush
+  // once per animation frame so React doesn't render per-token (which is the main
+  // source of flicker on long-running jobs).
   React.useEffect(() => {
     if (!jobId) return;
     let cancelled = false;
     let close: (() => void) | undefined;
-    setEvents([]);
-    setJob(null);
+    // Reset state for the new job (otherwise we'd show stale data from a previous chat).
     setFollowUp("");
+    setJob(null);
+    setEvents([]);
+    let pending: AgentEvent[] = [];
+    let pendingIds = new Set<string>();
+    let raf: number | null = null;
+    const flush = () => {
+      raf = null;
+      if (!pending.length) return;
+      const toAdd = pending;
+      pending = [];
+      pendingIds = new Set();
+      setEvents((prev) => {
+        const seen = new Set(prev.map((e) => e.id));
+        const fresh = toAdd.filter((e) => !seen.has(e.id));
+        if (!fresh.length) return prev;
+        return prev.concat(fresh);
+      });
+    };
+    const schedule = () => {
+      if (raf != null) return;
+      raf = requestAnimationFrame(flush);
+    };
+
     (async () => {
       try {
         const r = await api.job(jobId, true);
@@ -180,26 +205,43 @@ export function ChatView({ jobId, health }: ChatViewProps) {
       }
       if (cancelled) return;
       close = streamEvents(jobId, (e) => {
-        setEvents((prev) => {
-          if (prev.some((x) => x.id === e.id)) return prev;
-          return [...prev, e];
-        });
+        if (pendingIds.has(e.id)) return;
+        pendingIds.add(e.id);
+        pending.push(e);
+        // Job-status transitions affect the header — don't batch those.
         if (e.type === "job.completed" || e.type === "job.failed" || e.type === "job.cancelled") {
           api.job(jobId).then((r) => setJob(r.job)).catch(() => {});
         }
         if (e.type === "job.updated" && e.data) {
+          // The /api/jobs/:id/events SSE includes job.updated with the full pub() payload.
           setJob((j) => (j ? { ...j, ...(e.data as any) } : j));
         }
+        schedule();
       });
     })();
     return () => {
       cancelled = true;
+      if (raf != null) cancelAnimationFrame(raf);
       close?.();
     };
   }, [jobId]);
 
+
   const messages = React.useMemo<ChatMessage[]>(() => eventsToMessages(events), [events]);
   const isRunning = job?.status === "running" || job?.status === "queued";
+
+  // Stable callbacks so the prompt input + buttons don't get a fresh reference each render.
+  const onCancel = React.useCallback(() => {
+    if (jobId) api.cancel(jobId);
+  }, [jobId]);
+  const onReset = React.useCallback(async () => {
+    if (!jobId) return;
+    if (!confirm("Reset this session? This clears the agent's memory and event history.")) return;
+    await api.reset(jobId);
+    const r = await api.job(jobId, true);
+    setJob(r.job);
+    setEvents(r.job.events || []);
+  }, [jobId]);
 
   async function sendFollowUp(e?: React.FormEvent) {
     e?.preventDefault();
@@ -244,26 +286,11 @@ export function ChatView({ jobId, health }: ChatViewProps) {
         </div>
         <div className="flex items-center gap-1.5">
           {isRunning && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => jobId && api.cancel(jobId)}
-            >
+            <Button size="sm" variant="outline" onClick={onCancel}>
               <CircleStopIcon className="size-3.5" /> Cancel
             </Button>
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={async () => {
-              if (!jobId) return;
-              if (!confirm("Reset this session? This clears the agent's memory and event history.")) return;
-              await api.reset(jobId);
-              const r = await api.job(jobId, true);
-              setJob(r.job);
-              setEvents(r.job.events || []);
-            }}
-          >
+          <Button size="sm" variant="outline" onClick={onReset}>
             <RotateCcwIcon className="size-3.5" /> Reset
           </Button>
         </div>

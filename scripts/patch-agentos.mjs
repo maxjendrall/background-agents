@@ -30,3 +30,21 @@ if (acpSrc.includes("120_000") && !acpSrc.includes("600_000")) {
   writeFileSync(acpFile, acpSrc);
   console.log("[patch] increased ACP timeout to 600s");
 }
+
+// Patch host tool reference text. AgentOS advertises host tools as
+// `node /usr/local/bin/agentos-*` CLI shims, but Node-based shim execution is
+// unreliable in the current AgentOS/brush sandbox. Prefer native Pi wrappers
+// and avoid teaching agents to call the shims.
+const hostToolsPromptFile = resolve(process.cwd(), "node_modules/@rivet-dev/agent-os-core/dist/host-tools-prompt.js");
+let hostToolsPromptSrc;
+try { hostToolsPromptSrc = readFileSync(hostToolsPromptFile, "utf8"); } catch { process.exit(0); }
+const originalHostToolLine = 'lines.push(`- \\`node /usr/local/bin/agentos-${tk.name} ${toolName}${flagStr}\\` — ${tool.description}`);';
+if (hostToolsPromptSrc.includes(originalHostToolLine)) {
+  hostToolsPromptSrc = hostToolsPromptSrc
+    .replace('lines.push("Run `node /usr/local/bin/agentos list-tools` to see all available tools.");', 'lines.push("Prefer native Pi tools when available. Avoid `node /usr/local/bin/agentos-*` CLI shims inside AgentOS unless explicitly instructed; Node-based shims can be unreliable in some sandboxes.");')
+    .replace(originalHostToolLine, 'lines.push(`- Host tool ${tk.name}.${toolName}${flagStr} — ${tool.description}`);')
+    .replace('lines.push(`- ${ex.description}: \\`node /usr/local/bin/agentos-${tk.name} ${toolName}${flagArgs ? ` ${flagArgs}` : ""}\\``);', 'lines.push(`- ${ex.description}: host tool ${tk.name}.${toolName}${flagArgs ? ` ${flagArgs}` : ""}`);')
+    .replace('lines.push(`Run \\`node /usr/local/bin/agentos-${tk.name} <tool> --help\\` for details.`);', 'lines.push(`Prefer native Pi wrappers for this toolkit when present.`);');
+  writeFileSync(hostToolsPromptFile, hostToolsPromptSrc);
+  console.log("[patch] softened AgentOS host tool CLI prompt");
+}

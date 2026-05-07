@@ -39,29 +39,81 @@ module.exports = function(pi) {
     return attachments.map(a => "- **" + a.filename + "** (id: " + a.id + ", " + (a.mimeType || "unknown") + ", " + (a.size || 0) + " bytes) by " + (a.author?.displayName || "?")).join("\\n");
   }
 
-  // --- ADF to plain text ---
-  function adfText(node) {
+  // --- ADF to markdown ---
+  function clean(s) { return String(s || "").replace(/[ \t]+\\n/g, "\\n").replace(/\\n{3,}/g, "\\n\\n").trim(); }
+  function escPipe(s) { return String(s || "").replace(/\|/g, "\\|"); }
+  function markText(text, marks) {
+    let out = text || "";
+    marks = marks || [];
+    const link = marks.find(m => m.type === "link" && m.attrs && m.attrs.href);
+    if (marks.some(m => m.type === "code")) { const tick = String.fromCharCode(96); out = tick + out.replace(new RegExp(tick, "g"), String.fromCharCode(92) + tick) + tick; }
+    if (marks.some(m => m.type === "strong")) out = "**" + out + "**";
+    if (marks.some(m => m.type === "em")) out = "_" + out + "_";
+    if (marks.some(m => m.type === "strike")) out = "~~" + out + "~~";
+    if (link) out = out.trim() && out !== link.attrs.href ? "[" + out + "](" + link.attrs.href + ")" : link.attrs.href;
+    return out;
+  }
+  function adfInline(node) {
     if (!node) return "";
     if (typeof node === "string") return node;
-    if (node.type === "text") return node.text || "";
+    if (node.type === "text") return markText(node.text || "", node.marks || []);
     if (node.type === "hardBreak") return "\\n";
-    if (node.type === "mention") return "@" + (node.attrs?.text || "user");
+    if (node.type === "mention") return node.attrs?.text || node.attrs?.displayName || "@user";
+    if (node.type === "emoji") return node.attrs?.text || node.attrs?.shortName || "";
     if (node.type === "inlineCard") return node.attrs?.url || "";
-    if (Array.isArray(node.content)) return node.content.map(adfText).join("");
+    if (node.type === "date") return node.attrs?.timestamp ? new Date(Number(node.attrs.timestamp)).toISOString().slice(0, 10) : "";
+    if (node.type === "status") return node.attrs?.text ? "**" + node.attrs.text + "**" : "";
+    if (Array.isArray(node.content)) return node.content.map(adfInline).join("");
     return "";
   }
-  function adfToMd(adf) {
-    if (!adf || typeof adf === "string") return adf || "";
-    if (!adf.content) return "";
-    return adf.content.map(b => {
-      if (b.type === "paragraph") return adfText(b);
-      if (b.type === "heading") return "#".repeat(b.attrs?.level||2) + " " + adfText(b);
-      if (b.type === "bulletList") return b.content.map(li => "- " + adfText(li)).join("\\n");
-      if (b.type === "orderedList") return b.content.map((li,i) => (i+1) + ". " + adfText(li)).join("\\n");
-      if (b.type === "codeBlock") return "\`\`\`\\n" + adfText(b) + "\\n\`\`\`";
-      return adfText(b);
-    }).join("\\n\\n");
+  function renderList(node, indent, ordered) {
+    indent = indent || 0;
+    const items = node.content || [];
+    return items.map((item, idx) => {
+      const marker = ordered ? (idx + 1) + ". " : "- ";
+      const pad = " ".repeat(indent);
+      const parts = [];
+      for (const child of (item.content || [])) {
+        if (child.type === "bulletList") parts.push(renderList(child, indent + 2, false));
+        else if (child.type === "orderedList") parts.push(renderList(child, indent + 2, true));
+        else parts.push(adfBlock(child, indent + marker.length));
+      }
+      const body = clean(parts.join("\\n"));
+      const lines = body.split("\\n");
+      return pad + marker + (lines[0] || "") + lines.slice(1).map(l => "\\n" + pad + " ".repeat(marker.length) + l).join("");
+    }).join("\\n");
   }
+  function cellText(cell) { return clean((cell.content || []).map(n => adfBlock(n)).join("<br>")); }
+  function renderTable(node) {
+    const rows = (node.content || []).filter(r => r.type === "tableRow");
+    if (!rows.length) return "";
+    const table = rows.map(row => (row.content || []).map(cellText));
+    const cols = Math.max(...table.map(r => r.length));
+    const norm = table.map(r => Array.from({ length: cols }, (_, i) => escPipe(r[i] || " ")));
+    const out = [];
+    out.push("| " + norm[0].join(" | ") + " |");
+    out.push("| " + Array.from({ length: cols }, () => "---").join(" | ") + " |");
+    for (const row of norm.slice(1)) out.push("| " + row.join(" | ") + " |");
+    return out.join("\\n");
+  }
+  function adfBlock(node, indent) {
+    if (!node) return "";
+    if (typeof node === "string") return node;
+    if (node.type === "doc") return (node.content || []).map(n => adfBlock(n, indent)).filter(Boolean).join("\\n\\n");
+    if (node.type === "paragraph") return adfInline(node);
+    if (node.type === "heading") return "#".repeat(node.attrs?.level || 2) + " " + adfInline(node);
+    if (node.type === "bulletList") return renderList(node, indent || 0, false);
+    if (node.type === "orderedList") return renderList(node, indent || 0, true);
+    if (node.type === "codeBlock") { const fence = String.fromCharCode(96,96,96); return fence + (node.attrs?.language || "") + "\\n" + adfInline(node) + "\\n" + fence; }
+    if (node.type === "blockquote") return clean((node.content || []).map(n => adfBlock(n, indent)).join("\\n")).split("\\n").map(l => "> " + l).join("\\n");
+    if (node.type === "table") return renderTable(node);
+    if (node.type === "rule") return "---";
+    if (node.type === "blockCard") return node.attrs?.url || "";
+    if (node.type === "mediaSingle" || node.type === "mediaGroup") return "[media attachment]";
+    if (Array.isArray(node.content)) return node.content.map(n => adfBlock(n, indent)).filter(Boolean).join("\\n\\n");
+    return adfInline(node);
+  }
+  function adfToMd(adf) { return clean(adfBlock(adf)); }
 
   function fmtIssue(issue) {
     const f = issue.fields || {};
@@ -219,7 +271,7 @@ module.exports = function(pi) {
     parameters: { type: "object", properties: { board: { type: "string" } }, required: ["board"] },
     execute: async (toolCallId, { board }) => {
       const b = await boardJql(board);
-      return { content: [{ type: "text", text: "Board " + b.boardId + " filter " + b.filterId + " (" + (b.filterName || "unnamed") + "):\n" + b.jql }] };
+      return { content: [{ type: "text", text: "Board " + b.boardId + " filter " + b.filterId + " (" + (b.filterName || "unnamed") + "):\\n" + b.jql }] };
     },
   });
 

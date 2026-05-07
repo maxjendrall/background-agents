@@ -152,16 +152,21 @@ export function eventsToMessages(events: AgentEvent[]): ChatMessage[] {
           if (part?.tool) {
             if (td.status && td.status !== "pending") part.tool.status = td.status as ToolStatus;
             if (td.output?.content) {
-              const texts = td.output.content
-                .filter((c: any) => c.type === "text")
-                .map((c: any) => c.text);
+              const texts: string[] = [];
+              const images: any[] = [];
+              for (const c of td.output.content) {
+                if (c?.type === "text" && typeof c.text === "string") texts.push(c.text);
+                else if (c?.type === "image" && c.data) images.push({ mimeType: c.mimeType || "image/png", data: c.data });
+              }
               if (texts.length) part.tool.outputText = texts.join("");
+              if (images.length) part.tool.outputImages = images;
             }
+            if (td.output?.details) part.tool.outputDetails = td.output.details;
             if (Array.isArray(td.content)) {
               const texts = td.content
                 .filter((c: any) => c.type === "content" && c.content?.text)
                 .map((c: any) => c.content.text);
-              if (texts.length) part.tool.outputText = texts.join("");
+              if (texts.length && !part.tool.outputText) part.tool.outputText = texts.join("");
             }
             if (td.rawInput && Object.keys(td.rawInput).length) {
               part.tool.input = td.rawInput;

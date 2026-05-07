@@ -80,6 +80,10 @@ async function buildPrompt(config, body, batchedEvents) {
     `## Rules`,
     `- Focus on what just happened above. Do not re-summarize the whole ticket.`,
     `- If someone asked a question or gave feedback, respond to THAT specifically.`,
+    `- This was triggered from Jira. You must keep the Jira ticket updated with progress using the native jira_add_comment tool. Do not use node /usr/local/bin/agentos-jira or any AgentOS Jira CLI shim.`,
+    `- After initial investigation, always add a Jira progress comment with your plan, concrete questions, or current blocker before stopping or doing substantial implementation.`,
+    `- If you become blocked/unclear, add a Jira comment explaining the blocker and exactly what you need, then stop.`,
+    `- Before finishing, add a Jira comment summarizing what changed, tests run, and status. Do not finish a Jira-triggered turn without at least one Jira comment.`,
     noExplicitInstructions ? `- This was started without explicit extra instructions. First investigate the ticket and relevant code. If anything is unclear, add a Jira comment with your plan and concrete questions, then stop and wait for clarification. If it is clear, proceed with implementation and still report your plan/results in Jira.` : "",
     `- If the issue has relevant attachments, use jira_list_attachments and jira_download_attachment to inspect them before implementing.`,
     `- If the task is clear, implement it.`,
@@ -89,7 +93,7 @@ async function buildPrompt(config, body, batchedEvents) {
   return { issueKey: key, prompt };
 }
 
-const DEBOUNCE_MS = 30_000;
+const DEBOUNCE_MS = 5_000;
 
 export function jiraExtension() {
   // Webhook debounce buffer: issueKey -> { events: [], timer, firstBody }
