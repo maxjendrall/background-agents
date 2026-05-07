@@ -35,7 +35,9 @@ function continuationPrompt(job, attempt, max) {
   return [
     `Continue working on Jira issue ${job.issueKey}.`,
     `Your previous turn ended before completing the required Jira workflow (no final jira_add_comment was recorded).`,
-    `Do not restart from scratch; continue from the current workspace and what you already inspected.`,
+    `The server is starting you in a fresh Pi session to avoid reusing a possibly stuck AgentOS session, but the workspace and repo worktrees are preserved.`,
+    `Do not restart from scratch if the workspace already contains useful changes; inspect the current files and git status first.`,
+    `If you need ticket context again, read the Jira issue/comments/attachments again rather than assuming the previous chat history is available.`,
     `If the ticket is clear, implement the smallest safe change, use native git_commit/git_push and gh_pr_create or gh_pr_comment as appropriate, then add exactly one final jira_add_comment with changes, tests, PR/status, and blockers.`,
     `If it is unclear or blocked, add exactly one final jira_add_comment asking a concrete clarification question and stop.`,
     `Do not add progress or acknowledgement comments before the end of the turn.`,
@@ -168,9 +170,18 @@ export class JobRunner {
       const attempts = (current?.autoContinueCount || 0) + 1;
       const max = this.config.runtime.agentAutoContinueLimit || 5;
       if (attempts <= max) {
+        // A common failure mode is AgentOS accepting a follow-up on an already
+        // wedged session and then returning immediately with no tool/text
+        // events. Reusing that live session causes a rapid auto-continue loop.
+        // Dispose it and resume from the preserved workspace in a fresh session.
+        this.runtime.disposeJob(job.id);
+        const freshSessionDir = current?.workspacePath ? resolve(current.workspacePath, `.pi-sessions-auto-${attempts}-${Date.now()}`) : null;
         await this.store.update(job.id, {
           status: "queued",
-          prompt: continuationPrompt(job, attempts, max),
+          prompt: continuationPrompt(current || job, attempts, max),
+          resumeStrategy: "context",
+          messageMode: "steer",
+          ...(freshSessionDir ? { piSessionDir: freshSessionDir } : {}),
           error: null,
           completedAt: null,
           autoContinueCount: attempts,
@@ -183,12 +194,13 @@ export class JobRunner {
         this.queue.push(job.id);
         return;
       }
+      this.runtime.disposeJob(job.id);
       await this.store.update(job.id, {
-        status: "failed",
-        error: `Jira job ended ${max} times without final jira_add_comment`,
+        status: "interrupted",
+        error: `Jira job stopped after ${max} recovery attempts without a final jira_add_comment. It was not marked completed; send a follow-up to resume or inspect the latest events.`,
         completedAt: now(),
       });
-      await this.store.event(job.id, "job.failed", { error: `Missing final jira_add_comment after ${max} continuations` });
+      await this.store.event(job.id, "job.interrupted", { reason: "missing_final_jira_comment", attempts: max });
       return;
     }
 

@@ -312,7 +312,7 @@ export function ChatView({ jobId, health }: ChatViewProps) {
           )}
           {job.error && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              <div className="font-semibold mb-1">Run failed</div>
+              <div className="font-semibold mb-1">{job.status === "interrupted" ? "Needs attention" : "Run failed"}</div>
               <div className="font-mono text-xs whitespace-pre-wrap break-words">{job.error}</div>
             </div>
           )}
