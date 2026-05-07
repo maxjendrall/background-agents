@@ -84,7 +84,7 @@ export async function loadConfig() {
     github: {
       token: process.env.GITHUB_TOKEN || "",
       defaultOwner: process.env.GITHUB_DEFAULT_OWNER || "",
-      defaultBase: process.env.GITHUB_DEFAULT_BASE || "main",
+      defaultBase: process.env.GITHUB_DEFAULT_BASE || "",
       allowPush: bool("GIT_ALLOW_PUSH"),
       allowPr: bool("GITHUB_ALLOW_PR"),
       oauth: {

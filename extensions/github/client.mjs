@@ -69,9 +69,16 @@ export class GitHubClient {
   async getRepo(owner, repo) { return this.req(`/repos/${owner}/${repo}`); }
 
   async createPullRequest({ owner, repo, title, body, head, base }) {
+    const repoInfo = await this.getRepo(owner, repo);
+    const defaultBranch = repoInfo.default_branch || "main";
+    let targetBase = base || this.config.github?.defaultBase || defaultBranch;
+    // Older agent prompts/tools said "default: main", which made agents pass
+    // base=main even for repos whose default branch is production/master. Treat
+    // that stale default as omitted so PRs compare against the real repo base.
+    if (targetBase === "main" && defaultBranch !== "main") targetBase = defaultBranch;
     return this.req(`/repos/${owner}/${repo}/pulls`, {
       method: "POST",
-      body: JSON.stringify({ title, body, head, base: base || this.config.github?.defaultBase || "main" }),
+      body: JSON.stringify({ title, body, head, base: targetBase }),
     });
   }
 

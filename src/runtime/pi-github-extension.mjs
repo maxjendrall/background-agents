@@ -29,14 +29,18 @@ module.exports = function(pi) {
 
   pi.registerTool({
     name: "gh_pr_create",
-    description: "Create a pull request. Push the branch first with git push.",
-    parameters: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" }, title: { type: "string" }, body: { type: "string" }, head: { type: "string", description: "Branch name" }, base: { type: "string", description: "Target branch (default: main)" } }, required: ["owner", "repo", "title", "body", "head"] },
+    description: "Create a pull request. Push the branch first with git_push. Omit base unless a non-default target branch was explicitly requested; the tool uses the repository default branch.",
+    parameters: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" }, title: { type: "string" }, body: { type: "string" }, head: { type: "string", description: "Branch name" }, base: { type: "string", description: "Optional target branch. Omit to use the repository default branch." } }, required: ["owner", "repo", "title", "body", "head"] },
     execute: async (toolCallId, { owner, repo, title, body, head, base }) => {
+      const repoInfo = await ghReq("/repos/" + owner + "/" + repo);
+      const defaultBranch = repoInfo.default_branch || "main";
+      let targetBase = base || defaultBranch;
+      if (targetBase === "main" && defaultBranch !== "main") targetBase = defaultBranch;
       const pr = await ghReq("/repos/" + owner + "/" + repo + "/pulls", {
         method: "POST",
-        body: JSON.stringify({ title, body, head, base: base || "main" }),
+        body: JSON.stringify({ title, body, head, base: targetBase }),
       });
-      return { content: [{ type: "text", text: "PR #" + pr.number + " created: " + pr.html_url }] };
+      return { content: [{ type: "text", text: "PR #" + pr.number + " created against " + targetBase + ": " + pr.html_url }] };
     },
   });
 

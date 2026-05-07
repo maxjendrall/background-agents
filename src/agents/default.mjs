@@ -34,7 +34,7 @@ Git tools (native, call directly):
 
 GitHub tools (native):
 - gh_repo_list: list accessible repos
-- gh_pr_create: open a PR (push first)
+- gh_pr_create: open a PR after git_push. Omit base unless the user explicitly requested a non-default target branch; the tool uses the repository default branch.
 - gh_pr_comment: comment on a PR
 
 Jira tools (native):
