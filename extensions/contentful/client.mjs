@@ -150,6 +150,53 @@ export class ContentfulClient {
     return { api, spaceId: this.spaceId, environment: this.environment, path, query: normalizeQuery(query), ...(artifact ? { artifact } : {}), data };
   }
 
+  apiHelp() {
+    return {
+      scope: {
+        spaceId: this.spaceId || "(not configured)",
+        environment: "staging",
+        note: "Tools are hard-restricted to /spaces/{spaceId}/environments/staging. Do not include /spaces or /environments in contentful_http_get paths.",
+      },
+      preferredTools: [
+        { tool: "contentful_list_content_types", use: "Discover content models/data models." },
+        { tool: "contentful_get_content_type", use: "Inspect fields and validations for one content type." },
+        { tool: "contentful_list_entries", use: "Find staging entries, optionally filtered by contentType." },
+        { tool: "contentful_get_entry", use: "Inspect one staging entry by id; save=true stores full JSON in contentful-artifacts." },
+      ],
+      httpGet: {
+        description: "Escape-hatch read-only GET. Paths are relative to /spaces/{spaceId}/environments/staging for management API, or the equivalent staging environment root for preview/delivery.",
+        commonManagementPaths: [
+          "/content_types",
+          "/content_types/{contentTypeId}",
+          "/content_types/{contentTypeId}/editor_interface",
+          "/entries",
+          "/entries/{entryId}",
+          "/assets",
+          "/assets/{assetId}",
+          "/locales",
+          "/tags",
+        ],
+        commonQueryParams: {
+          limit: "Number of items, e.g. 20",
+          skip: "Pagination offset",
+          content_type: "Filter entries by content type id",
+          select: "Comma-separated field/sys projection",
+          order: "Sort field, e.g. -sys.updatedAt",
+          include: "Link include depth for entries/assets",
+          "fields.<fieldId>": "Filter on a field, e.g. fields.slug=my-page",
+          "sys.id": "Filter by entry id where supported",
+        },
+        examples: [
+          { tool: "contentful_http_get", input: { api: "management", path: "/content_types", query: { limit: 100 } } },
+          { tool: "contentful_http_get", input: { api: "management", path: "/content_types/page" } },
+          { tool: "contentful_http_get", input: { api: "management", path: "/entries", query: { content_type: "page", limit: 10, order: "-sys.updatedAt" } } },
+          { tool: "contentful_http_get", input: { api: "management", path: "/entries/{entryId}" } },
+          { tool: "contentful_http_get", input: { api: "management", path: "/locales" } },
+        ],
+      },
+    };
+  }
+
   async listContentTypes({ limit = 100, skip = 0, query = {} } = {}) {
     const data = await this.request("management", "/content_types", { limit, skip, order: "sys.id", ...query });
     return {

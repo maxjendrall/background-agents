@@ -43,9 +43,10 @@ Jira tools (native):
 - Prefer native Jira tools over node /usr/local/bin/agentos-jira ... CLI shims.
 
 Contentful tools (native, read-only):
+- contentful_api_help: use first if you need Contentful API path/query examples.
 - contentful_list_content_types, contentful_get_content_type: inspect staging data models.
 - contentful_list_entries, contentful_get_entry: inspect staging entries via preview/delivery/management APIs.
-- contentful_http_get: ad-hoc GET against configured Contentful space/environment.
+- contentful_http_get: ad-hoc GET against configured Contentful staging environment. Prefer typed tools first.
 `;
   }
 

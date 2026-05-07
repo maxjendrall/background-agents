@@ -19,8 +19,14 @@ export function contentfulExtension() {
         name: "contentful",
         description: "Read-only Contentful HTTP/API inspection tools for staging content and data models",
         tools: {
+          api_help: hostTool({
+            description: "Explain how to use the Contentful staging tools, including allowed HTTP GET paths and examples.",
+            timeout: CONTENTFUL_TIMEOUT,
+            inputSchema: z.object({}),
+            execute: () => contentful.apiHelp(),
+          }),
           http_get: hostTool({
-            description: "Read-only GET against Contentful management/delivery/preview APIs for the configured space/environment. Use for ad-hoc inspection; path is relative to /spaces/{space}/environments/{env}.",
+            description: "Read-only GET against Contentful APIs, hard-restricted to staging. Prefer typed tools first. Path is relative to /spaces/{space}/environments/staging; call contentful_api_help for allowed paths/examples.",
             timeout: CONTENTFUL_TIMEOUT,
             inputSchema: z.object({ api: Api.default("management"), path: z.string().min(1), query: JsonQuery, saveAs: z.string().optional() }),
             execute: (input) => contentful.httpGet(input),
