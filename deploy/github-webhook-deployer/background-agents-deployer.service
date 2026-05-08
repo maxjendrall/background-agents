@@ -1,0 +1,18 @@
+[Unit]
+Description=Background Agents GitHub webhook deployer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/background-agents-deployer
+EnvironmentFile=-/etc/background-agents-deployer.env
+ExecStart=/root/.nvm/versions/node/v24.14.1/bin/node /opt/background-agents-deployer/deployer.mjs
+Restart=always
+RestartSec=3
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target
