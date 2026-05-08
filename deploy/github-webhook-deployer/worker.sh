@@ -38,6 +38,11 @@ read_json_field() {
   "$NODE_BIN" -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(j[process.argv[2]] ?? ""));' "$file" "$field"
 }
 
+pending_sha() {
+  [[ -s "$PENDING" ]] || return 1
+  read_json_field "$PENDING" sha
+}
+
 echo "[$(date -Is)] deploy worker start log=$LOG_FILE"
 last_exit=0
 
@@ -65,6 +70,10 @@ while true; do
     rm -f "$LAST_FAILURE"
     last_exit=0
     echo "[$(date -Is)] deploy succeeded sha=$SHA"
+    if [[ "$(pending_sha 2>/dev/null || true)" == "$SHA" ]]; then
+      echo "[$(date -Is)] dropping duplicate pending sha=$SHA"
+      rm -f "$PENDING"
+    fi
   else
     code=$?
     cp "$CURRENT" "$LAST_FAILURE"
