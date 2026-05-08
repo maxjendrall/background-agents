@@ -3,6 +3,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
+import { appendFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const ENV_FILES = ["/root/background-agents/.env", "/etc/background-agents-deployer.env"];
 
@@ -24,14 +26,19 @@ for (const file of ENV_FILES) loadEnvFile(file);
 const port = Number(process.env.DEPLOYER_PORT || 8790);
 const host = process.env.DEPLOYER_HOST || "127.0.0.1";
 const secret = process.env.GITHUB_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || "";
-const deployScript = process.env.DEPLOY_SCRIPT || "/opt/background-agents-deployer/deploy.sh";
 const branch = process.env.DEPLOY_BRANCH || "main";
 const allowedRepo = process.env.DEPLOY_REPO || "";
+const queueDir = process.env.QUEUE_DIR || "/var/lib/background-agents-deployer";
+const workerService = process.env.DEPLOY_WORKER_SERVICE || "background-agents-deploy-worker.service";
+const pendingPath = join(queueDir, "pending.json");
+const webhookLogPath = join(queueDir, "webhooks.jsonl");
 
 if (!secret) {
   console.error("GITHUB_WEBHOOK_SECRET is required");
   process.exit(1);
 }
+
+await mkdir(queueDir, { recursive: true });
 
 function json(res, status, body) {
   const text = JSON.stringify(body);
@@ -58,21 +65,20 @@ function verifySignature(body, signature) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function startDeploy({ repo, sha, ref, delivery }) {
-  const unit = `background-agents-deploy-${Date.now()}`;
-  const args = [
-    "--unit", unit,
-    "--collect",
-    "--property", "Type=exec",
-    deployScript,
-    repo,
-    sha,
-    ref,
-    delivery || "",
-  ];
-  const child = spawn("systemd-run", args, { stdio: "ignore", detached: true });
+async function logWebhook(entry) {
+  await appendFile(webhookLogPath, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n");
+}
+
+async function writePending(payload) {
+  const tmp = join(queueDir, `pending.${process.pid}.${Date.now()}.tmp`);
+  await writeFile(tmp, JSON.stringify(payload, null, 2) + "\n", "utf8");
+  await rename(tmp, pendingPath);
+}
+
+function startWorker() {
+  const child = spawn("systemctl", ["start", workerService], { stdio: "ignore", detached: true });
   child.unref();
-  return unit;
+  return workerService;
 }
 
 createServer(async (req, res) => {
@@ -83,26 +89,45 @@ createServer(async (req, res) => {
     const delivery = req.headers["x-github-delivery"] || "";
     const event = req.headers["x-github-event"] || "";
     const signature = req.headers["x-hub-signature-256"] || "";
-    if (!verifySignature(body, signature)) return json(res, 401, { ok: false, error: "bad_signature" });
+    if (!verifySignature(body, signature)) {
+      await logWebhook({ delivery, event, accepted: false, reason: "bad_signature" }).catch(() => {});
+      return json(res, 401, { ok: false, error: "bad_signature" });
+    }
 
     const payload = JSON.parse(body.toString("utf8"));
-    if (event === "ping") return json(res, 200, { ok: true, event: "ping" });
-    if (event !== "push") return json(res, 202, { ok: true, ignored: true, reason: "event", event });
+    if (event === "ping") {
+      await logWebhook({ delivery, event, accepted: true, action: "ping" }).catch(() => {});
+      return json(res, 200, { ok: true, event: "ping" });
+    }
+    if (event !== "push") {
+      await logWebhook({ delivery, event, accepted: true, ignored: true, reason: "event" }).catch(() => {});
+      return json(res, 202, { ok: true, ignored: true, reason: "event", event });
+    }
 
     const repo = payload.repository?.full_name;
     const ref = payload.ref;
     const sha = payload.after;
     if (!repo || !sha || !ref) return json(res, 400, { ok: false, error: "missing_repo_ref_or_sha" });
-    if (allowedRepo && repo !== allowedRepo) return json(res, 202, { ok: true, ignored: true, reason: "repo", repo });
-    if (ref !== `refs/heads/${branch}`) return json(res, 202, { ok: true, ignored: true, reason: "branch", ref });
+    if (allowedRepo && repo !== allowedRepo) {
+      await logWebhook({ delivery, event, repo, ref, sha, accepted: true, ignored: true, reason: "repo" }).catch(() => {});
+      return json(res, 202, { ok: true, ignored: true, reason: "repo", repo });
+    }
+    if (ref !== `refs/heads/${branch}`) {
+      await logWebhook({ delivery, event, repo, ref, sha, accepted: true, ignored: true, reason: "branch" }).catch(() => {});
+      return json(res, 202, { ok: true, ignored: true, reason: "branch", ref });
+    }
 
-    const unit = startDeploy({ repo, sha, ref, delivery });
-    console.log(JSON.stringify({ ts: new Date().toISOString(), delivery, event, repo, ref, sha, unit }));
-    return json(res, 202, { ok: true, unit, repo, sha });
+    const queued = { repo, sha, ref, delivery, receivedAt: new Date().toISOString() };
+    await writePending(queued);
+    await logWebhook({ delivery, event, repo, ref, sha, accepted: true, queued: true });
+    const service = startWorker();
+    console.log(JSON.stringify({ ts: new Date().toISOString(), delivery, event, repo, ref, sha, service, queued: true }));
+    return json(res, 202, { ok: true, queued: true, service, repo, sha });
   } catch (error) {
     console.error(error);
     return json(res, 500, { ok: false, error: error.message || String(error) });
   }
 }).listen(port, host, () => {
   console.log(`[background-agents-deployer] http://${host}:${port}`);
+  if (existsSync(pendingPath)) startWorker();
 });

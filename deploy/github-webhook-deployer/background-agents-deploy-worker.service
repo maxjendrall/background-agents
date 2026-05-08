@@ -1,0 +1,17 @@
+[Unit]
+Description=Background Agents consolidated deploy worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/background-agents-deployer
+EnvironmentFile=-/etc/background-agents-deployer.env
+ExecStart=/opt/background-agents-deployer/worker.sh
+TimeoutStartSec=3600
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target
