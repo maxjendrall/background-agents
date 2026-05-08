@@ -10,6 +10,7 @@ APP_SERVICE="${APP_SERVICE:-background-agents.service}"
 NODE_BIN="${NODE_BIN:-/root/.nvm/versions/node/v24.14.1/bin/node}"
 NPM_BIN="${NPM_BIN:-/root/.nvm/versions/node/v24.14.1/bin/npm}"
 BRANCH="${DEPLOY_BRANCH:-main}"
+export HOME="${HOME:-/root}"
 
 REPO="${1:-${DEPLOY_REPO:-}}"
 SHA="${2:-}"
@@ -31,6 +32,7 @@ NODE_BIN="${NODE_BIN:-/root/.nvm/versions/node/v24.14.1/bin/node}"
 NPM_BIN="${NPM_BIN:-/root/.nvm/versions/node/v24.14.1/bin/npm}"
 BRANCH="${DEPLOY_BRANCH:-$BRANCH}"
 REPO="${REPO:-${DEPLOY_REPO:-}}"
+export PATH="$(dirname "$NODE_BIN"):$PATH"
 
 if [[ -z "$REPO" || -z "$SHA" ]]; then
   echo "usage: deploy.sh <owner/repo> <sha> [ref] [delivery]"
@@ -66,7 +68,7 @@ fi
 git reset --hard "$TARGET"
 git clean -fd
 
-"$NPM_BIN" ci
+"$NPM_BIN" install --package-lock=false
 "$NPM_BIN" run check
 
 systemctl daemon-reload
