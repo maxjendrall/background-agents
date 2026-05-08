@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
@@ -20,6 +21,23 @@ function persistEnv(root, updates) {
   });
   for (const [key, value] of Object.entries(updates)) if (!seen.has(key)) lines.push(`${key}=${value}`);
   writeFileSync(path, lines.join("\n").replace(/\n*$/, "\n"));
+}
+
+const codeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+function readReleaseInfo() {
+  let deploy = null;
+  try { deploy = JSON.parse(readFileSync(resolve(codeRoot, ".deploy.json"), "utf8")); } catch {}
+  let pkg = null;
+  try {
+    const parsed = JSON.parse(readFileSync(resolve(codeRoot, "package.json"), "utf8"));
+    pkg = { name: parsed.name, version: parsed.version };
+  } catch {}
+  return {
+    codeRoot,
+    package: pkg,
+    deploy,
+  };
 }
 
 export function createApp({ config, store, runner, runtime, extensions }) {
@@ -97,6 +115,7 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
   app.get("/", (c) => c.json({ name: "background-agents" }));
   app.get("/health", (c) => c.json({
     ok: true,
+    release: readReleaseInfo(),
     workspace: config.workspace.exists ? config.workspace.path : null,
     model: config.runtime.model,
     thinkingLevel: config.runtime.thinkingLevel,

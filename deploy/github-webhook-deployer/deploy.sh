@@ -148,6 +148,8 @@ RELEASE_DIR="$RELEASES_DIR/${TARGET:0:12}-$(date -u +%Y%m%dT%H%M%SZ)"
 git clone --no-checkout "$CACHE_REPO" "$RELEASE_DIR"
 git -C "$RELEASE_DIR" checkout --detach "$TARGET"
 git -C "$RELEASE_DIR" remote set-url origin "$REMOTE_URL" || true
+"$NODE_BIN" -e 'const fs=require("fs"); const [path,repo,sha,ref,branch,delivery,releaseDir]=process.argv.slice(1); fs.writeFileSync(path, JSON.stringify({repo,sha,ref,branch,delivery,deployedAt:new Date().toISOString(),releaseDir}, null, 2)+"\n");' \
+  "$RELEASE_DIR/.deploy.json" "$REPO" "$TARGET" "$REF" "$BRANCH" "$DELIVERY" "$RELEASE_DIR"
 
 (
   cd "$RELEASE_DIR"

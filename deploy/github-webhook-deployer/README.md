@@ -11,8 +11,21 @@ Flow:
 5. The latest accepted deploy request is written atomically to `/var/lib/background-agents-deployer/pending.json`.
 6. `background-agents-deploy-worker.service` is started. If a worker is already active, `systemctl start` is a no-op.
 7. The worker consumes only the latest pending deploy. If more webhooks arrive during a deploy, they overwrite `pending.json`; after the current deploy finishes, the worker deploys that newest pending SHA once.
-8. Deploy script obtains a GitHub App installation token, fetches the repo, resets the worktree, runs install/check, then restarts `background-agents.service`.
+8. Deploy script obtains a GitHub App installation token, fetches the repo, builds a new release directory, runs install/check, waits for `/health.active === 0`, atomically switches `/opt/background-agents-current`, then restarts `background-agents.service`.
 
 This consolidates bursts of commits: it does not deploy every intermediate SHA, only the currently running SHA plus the latest pending trigger.
 
 Config is in `/etc/background-agents-deployer.env`; GitHub App settings can be reused from `/root/background-agents/.env`.
+
+Validate the running release after a push:
+
+```bash
+TOKEN=$(grep ^AUTH_TOKEN= /root/background-agents/.env | cut -d= -f2-)
+curl -fsS -H "authorization: Bearer $TOKEN" http://127.0.0.1:8787/health | jq .release
+readlink /opt/background-agents-current
+git --git-dir=/var/lib/background-agents-deployer/repo.git rev-parse refs/remotes/origin/main
+```
+
+The `/health` `release.deploy.sha` should match the GitHub `main` SHA and the
+`/opt/background-agents-current` symlink should point at the corresponding
+release directory.
