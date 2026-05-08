@@ -334,6 +334,38 @@ Files: `extensions/agents/*`, `src/runtime/pi-agents-extension.mjs`
 - `start_agent` is for generic non-Jira work.
 - Fire-and-forget by design.
 
+## Deployment and release validation
+
+Production deploys are handled by the standalone deployer in
+`deploy/github-webhook-deployer/`, not by the app process itself.
+
+High-level behavior:
+
+- GitHub `push` webhooks go to `https://agents.petsdeli.de/github-webhook`.
+- The webhook receiver verifies `X-Hub-Signature-256` and queues only pushes to
+  `DEPLOY_REPO`/`DEPLOY_BRANCH`.
+- Rapid pushes are consolidated through `/var/lib/background-agents-deployer/pending.json`:
+  while one deploy runs, only the newest pending SHA is kept.
+- A deploy builds a fresh release under `/opt/background-agents-releases`, runs
+  checks, builds `/app`, waits for `/health.active === 0`, then atomically
+  switches `/opt/background-agents-current` and restarts `background-agents.service`.
+- `/api`, `/ui`, and `/app` are all served from the same current release.
+- Runtime data/secrets/jobs/repo-cache/MicroVM images remain under
+  `/root/background-agents`.
+
+Validate the running version:
+
+```bash
+TOKEN=$(grep ^AUTH_TOKEN= /root/background-agents/.env | cut -d= -f2-)
+curl -fsS -H "authorization: Bearer $TOKEN" http://127.0.0.1:8787/health | jq .release
+readlink /opt/background-agents-current
+git --git-dir=/var/lib/background-agents-deployer/repo.git rev-parse refs/remotes/origin/main
+```
+
+The `release.deploy.sha`, fetched GitHub `main` SHA, and release symlink prefix
+should match. Full deployer docs, webhook setup, troubleshooting, and rollback
+steps are in [`deploy/github-webhook-deployer/README.md`](deploy/github-webhook-deployer/README.md).
+
 ## API summary
 
 ```txt
