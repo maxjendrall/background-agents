@@ -29,3 +29,7 @@ git --git-dir=/var/lib/background-agents-deployer/repo.git rev-parse refs/remote
 The `/health` `release.deploy.sha` should match the GitHub `main` SHA and the
 `/opt/background-agents-current` symlink should point at the corresponding
 release directory.
+
+`/api`, `/ui`, and `/app` are served from the same release. Runtime state,
+secrets, job data, repo caches, and MicroVM images remain under
+`/root/background-agents` via the service working directory and `.env`.

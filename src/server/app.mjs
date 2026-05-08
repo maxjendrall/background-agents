@@ -71,14 +71,14 @@ fetch('/health',{headers:{Authorization:'Bearer '+t}}).then(r=>{if(r.ok){localSt
   });
 
   // --- UI (protected) ---
-  const uiDir = resolve(config.root, "ui");
+  const uiDir = resolve(codeRoot, "ui");
   app.get("/ui", (c) => c.html(readFileSync(resolve(uiDir, "index.html"), "utf8")));
   app.get("/ui/app.js", (c) => { c.header("content-type", "application/javascript"); return c.body(readFileSync(resolve(uiDir, "app.js"), "utf8")); });
   app.get("/ui/style.css", (c) => { c.header("content-type", "text/css"); return c.body(readFileSync(resolve(uiDir, "style.css"), "utf8")); });
 
 
   // --- New /app (Vite-built React + AI Elements) ---
-  const appDir = resolve(config.root, "app", "dist");
+  const appDir = resolve(codeRoot, "app", "dist");
   const serveAppFile = (relPath, mime) => (c) => {
     try {
       const body = readFileSync(resolve(appDir, relPath));

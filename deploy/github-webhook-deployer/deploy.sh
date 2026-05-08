@@ -155,6 +155,9 @@ git -C "$RELEASE_DIR" remote set-url origin "$REMOTE_URL" || true
   cd "$RELEASE_DIR"
   "$NPM_BIN" install --package-lock=false
   "$NPM_BIN" run check
+  if [[ -f app/package.json ]]; then
+    (cd app && "$NPM_BIN" install --package-lock=false && "$NPM_BIN" run build)
+  fi
 )
 
 exit_if_superseded
