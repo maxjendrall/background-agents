@@ -82,8 +82,10 @@ export async function loadConfig() {
     },
     jira: {
       baseUrl: process.env.JIRA_BASE_URL || "",
-      email: process.env.JIRA_EMAIL || "",
-      token: process.env.JIRA_API_TOKEN || "",
+      authMode: process.env.JIRA_AUTH_MODE || "",
+      cloudId: process.env.JIRA_CLOUD_ID || process.env.JIRA_SERVICE_ACCOUNT_CLOUD_ID || "",
+      email: process.env.JIRA_SERVICE_ACCOUNT_EMAIL || process.env.JIRA_EMAIL || "",
+      token: process.env.JIRA_SERVICE_ACCOUNT_TOKEN || process.env.JIRA_API_TOKEN || "",
       autoComment: bool("JIRA_AUTO_COMMENT"),
       triggerMention: process.env.JIRA_TRIGGER_MENTION || "@agent",
       triggerStatuses: list(process.env.JIRA_TRIGGER_STATUSES),

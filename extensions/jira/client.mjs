@@ -21,6 +21,10 @@ function combineJql(baseJql, extraJql) {
   return `(${baseJql}) AND (${extraJql})`;
 }
 
+function normalizedAuthMode(value) {
+  return String(value || "").trim().toLowerCase().replace(/_/g, "-");
+}
+
 export class JiraClient {
   constructor(config) {
     this.config = config;
@@ -28,6 +32,11 @@ export class JiraClient {
   }
 
   get mode() {
+    const explicit = normalizedAuthMode(this.config.jira.authMode);
+    if (["service-account", "service", "scoped-token", "scoped", "gateway"].includes(explicit)) return "scoped-token";
+    if (explicit === "oauth") return this.config.jira.oauth?.clientId ? "oauth" : "none";
+    if (explicit === "basic") return this.config.jira.email && this.config.jira.token ? "basic" : "none";
+    if (this.config.jira.cloudId && this.config.jira.token) return "scoped-token";
     if (this.config.jira.oauth?.clientId) return "oauth";
     if (this.config.jira.email && this.config.jira.token) return "basic";
     return "none";
@@ -83,6 +92,7 @@ export class JiraClient {
   }
 
   async _getCloudId() {
+    if (this.config.jira.cloudId) return this.config.jira.cloudId;
     const tokens = this._loadTokens();
     if (tokens?.cloudId) return tokens.cloudId;
 
@@ -127,11 +137,24 @@ export class JiraClient {
 
   // --- API requests ---
 
+  _scopedTokenUrl(path) {
+    const cloudId = this.config.jira.cloudId;
+    if (!cloudId) throw new Error("JIRA_CLOUD_ID is required for Jira service-account/scoped-token auth. Scoped tokens must call https://api.atlassian.com/ex/jira/{cloudId}/...");
+    return `https://api.atlassian.com/ex/jira/${cloudId}${path}`;
+  }
+
   async reqRaw(path, opts = {}) {
     if (this.mode === "basic") {
       return fetch(`${this.config.jira.baseUrl.replace(/\/$/, "")}${path}`, {
         ...opts,
         headers: { Authorization: basicAuth(this.config.jira.email, this.config.jira.token), Accept: "application/json", ...(opts.body ? { "Content-Type": "application/json" } : {}), ...opts.headers },
+      });
+    }
+
+    if (this.mode === "scoped-token") {
+      return fetch(this._scopedTokenUrl(path), {
+        ...opts,
+        headers: { Authorization: `Bearer ${this.config.jira.token}`, Accept: "application/json", ...(opts.body ? { "Content-Type": "application/json" } : {}), ...opts.headers },
       });
     }
 
@@ -152,6 +175,13 @@ export class JiraClient {
       return fetchJson(`${this.config.jira.baseUrl.replace(/\/$/, "")}${path}`, {
         ...opts,
         headers: { Authorization: basicAuth(this.config.jira.email, this.config.jira.token), Accept: "application/json", "Content-Type": "application/json", ...opts.headers },
+      });
+    }
+
+    if (this.mode === "scoped-token") {
+      return fetchJson(this._scopedTokenUrl(path), {
+        ...opts,
+        headers: { Authorization: `Bearer ${this.config.jira.token}`, Accept: "application/json", "Content-Type": "application/json", ...opts.headers },
       });
     }
 
@@ -182,7 +212,7 @@ export class JiraClient {
       config = await this.getBoardConfiguration(id);
     } catch (e) {
       if (String(e.message || e).includes("scope does not match")) {
-        throw new Error("Jira board API scope is missing. Re-authorize at /api/jira/oauth/authorize so the token includes read:board-scope:jira-software, read:project:jira, read:filter:jira, and read:jql:jira.");
+        throw new Error("Jira board API scope is missing. For OAuth, re-authorize at /api/jira/oauth/authorize. For service-account/scoped-token auth, create a new token with read:board-scope:jira-software, read:project:jira, read:filter:jira, and read:jql:jira.");
       }
       throw e;
     }

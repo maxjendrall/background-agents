@@ -187,6 +187,7 @@ export function jiraExtension() {
         const jira = new JiraClient(config);
         if (jira.mode === "none") return c.json({ connected: false, mode: "none" });
         if (jira.mode === "basic") return c.json({ connected: true, mode: "basic", email: config.jira.email });
+        if (jira.mode === "scoped-token") return c.json({ connected: true, mode: "scoped-token", cloudId: config.jira.cloudId || null, email: config.jira.email || null });
         const tokens = jira._loadTokens();
         return c.json({ connected: !!tokens?.refresh_token, mode: "oauth", site: tokens?.siteName || null, cloudId: tokens?.cloudId || null });
       });

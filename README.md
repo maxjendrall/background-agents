@@ -190,6 +190,33 @@ Current Jira behavior:
 - If the trigger is only the agent's own prior Jira comment and contains no new external feedback, the agent should not comment again.
 - If code changes are made, agents should use native `git_commit`, `git_push`, and `gh_pr_create`/`gh_pr_comment` before the final Jira comment.
 
+### Jira service-account auth
+
+Preferred production Jira auth is a dedicated Jira Cloud service account with a
+scoped API token, so comments and transitions are authored by the bot account
+rather than by a human OAuth user.
+
+Configure:
+
+```txt
+JIRA_AUTH_MODE=scoped-token
+JIRA_CLOUD_ID=<site cloudId>
+JIRA_SERVICE_ACCOUNT_EMAIL=<optional service account email>
+JIRA_SERVICE_ACCOUNT_TOKEN=<scoped API token>
+```
+
+Scoped API tokens must call Atlassian's API gateway:
+`https://api.atlassian.com/ex/jira/{cloudId}/...`; they do not work against
+`https://your-site.atlassian.net/...`. The app uses bearer-token auth for this
+mode. Keep `JIRA_BASE_URL` for human-facing links/config compatibility if
+needed, but API calls in `scoped-token` mode use `JIRA_CLOUD_ID`.
+
+The token and service account need both scopes and Jira project permissions. At
+minimum, grant read/write Jira work scopes for issue/comment access. Board/JQL
+tools additionally need scopes such as `read:board-scope:jira-software`,
+`read:project:jira`, `read:filter:jira`, and `read:jql:jira` plus matching Jira
+project/board permissions.
+
 ### Child-agent fan-out
 
 The `agents` extension provides:
@@ -402,6 +429,9 @@ AGENT_SPAWN_LIMIT=25
 JIRA_TRIGGER_MENTION=@agent
 JIRA_TRIGGER_STATUSES=
 JIRA_TRIGGER_LABELS=
+JIRA_AUTH_MODE=scoped-token
+JIRA_CLOUD_ID=
+JIRA_SERVICE_ACCOUNT_TOKEN=
 
 CONTENTFUL_ENVIRONMENT=staging
 
